@@ -83,3 +83,19 @@ format (`26MRP0001`), and the default 40 to 60 split between coursework and exam
 
 A staging and demonstration copy runs on Railway in the project "GSA Ecosystem", beside the other two
 systems, with fictional data only. How it is built and configured: [deploy/railway/README.md](deploy/railway/README.md).
+
+## Demonstration data
+
+`seed_demo` loads an invented dataset for staging and development: four courses, seven offerings, thirteen
+students admitted through the admissions service, four applications still in progress, enrolments with
+empty draft results for the current term, and six published results for the term before. Every person is
+fictional, says so in the address line, and carries an identifier that starts with `DEMO-`.
+**Never run it on a database that holds real records.**
+
+```bash
+docker compose exec api python manage.py sync_hrms                  # lecturers' names, from the HRMS
+docker compose exec api python manage.py seed_demo --fictional
+```
+
+It is idempotent. Lecturers are the staff of the HRMS demonstration data, so load the systems in this
+order: HRMS, SRMS, LMS.
