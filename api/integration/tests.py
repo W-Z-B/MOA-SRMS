@@ -122,3 +122,24 @@ def test_reference_and_reports_for_staff(student, registrar, client_for):
         }
     ]
     assert client_for(student.user).get("/api/v1/reports/enrolment-by-programme/").status_code == 403
+
+
+@pytest.mark.django_db
+def test_a_key_held_by_the_platform_is_registered_without_being_printed(monkeypatch, capsys):
+    from django.core.management import CommandError, call_command
+
+    key = "k" * 43
+    monkeypatch.setenv("SERVICE_KEY_TEST", key)
+    call_command(
+        "create_service_client", name="sibling", scopes=["academics:read"], key_env="SERVICE_KEY_TEST"
+    )
+    assert key not in capsys.readouterr().out
+    client = ServiceClient.authenticate(key)
+    assert client is not None and client.name == "sibling" and client.scopes == ["academics:read"]
+
+    monkeypatch.setenv("SERVICE_KEY_TEST", "too-short")
+    with pytest.raises(CommandError):
+        call_command(
+            "create_service_client", name="sibling", scopes=["academics:read"], key_env="SERVICE_KEY_TEST"
+        )
+    assert ServiceClient.authenticate(key) is not None
