@@ -78,3 +78,8 @@ format (`26MRP0001`), and the default 40 to 60 split between coursework and exam
 - Never commit secrets. `.env` is ignored; `.env.example` holds placeholders only.
 - Every write to a student, application or result goes through an audited view or workflow.
 - Branching: trunk-based, `feature/<area>-<name>` branches, pull request with green CI into `main`.
+
+## Hosted staging (Railway)
+
+A staging and demonstration copy runs on Railway in the project "GSA Ecosystem", beside the other two
+systems, with fictional data only. How it is built and configured: [deploy/railway/README.md](deploy/railway/README.md).
