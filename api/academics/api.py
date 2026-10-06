@@ -91,6 +91,7 @@ class ResultSerializer(TimeStampedSerializer):
     offering_code = serializers.CharField(source="enrolment.offering.code", read_only=True)
     course_code = serializers.CharField(source="enrolment.offering.course.code", read_only=True)
     allowed_actions = serializers.SerializerMethodField()
+    attendance = serializers.SerializerMethodField()
 
     class Meta(TimeStampedSerializer.Meta):
         model = Result
@@ -111,6 +112,7 @@ class ResultSerializer(TimeStampedSerializer):
             "coursework_source",
             "decision_comment",
             "allowed_actions",
+            "attendance",
         )
         read_only_fields = TimeStampedSerializer.Meta.read_only_fields + (
             "enrolment",
@@ -122,6 +124,22 @@ class ResultSerializer(TimeStampedSerializer):
             "coursework_source",
             "decision_comment",
         )
+
+    def get_attendance(self, obj) -> dict | None:
+        """Attendance totals the LMS sent for this enrolment, for programmes that require attendance."""
+        total = getattr(obj.enrolment, "attendance", None)
+        if total is None:
+            return None
+        return {
+            "sessions": total.sessions,
+            "present": total.present,
+            "late": total.late,
+            "excused": total.excused,
+            "absent": total.absent,
+            "not_recorded": total.not_recorded,
+            "percent": str(total.percent) if total.percent is not None else None,
+            "received_at": total.received_at.isoformat(),
+        }
 
     def get_allowed_actions(self, obj):
         request = self.context.get("request")
@@ -223,7 +241,10 @@ class ResultViewSet(AuditedModelViewSet):
     def get_queryset(self):
         user = self.request.user
         qs = Result.objects.select_related(
-            "enrolment__student", "enrolment__offering__course", "enrolment__offering__term"
+            "enrolment__student",
+            "enrolment__offering__course",
+            "enrolment__offering__term",
+            "enrolment__attendance",
         )
         if has_role(user, *REGISTRY, Role.PRINCIPAL, Role.AUDITOR):
             qs = scope_queryset(user, qs, campus_field="enrolment__offering__campus_code")
