@@ -12,13 +12,13 @@ One of three systems in the GSA ecosystem, built and deployed separately and joi
 Same stack and licence policy as the HRMS: Django 5, Django REST Framework, PostgreSQL 16, React,
 Caddy, Docker Compose. Every component is MIT, BSD, Apache 2.0, PostgreSQL or PSF licensed.
 
-**Status:** scaffold with working API and web screens. 26 backend tests pass against PostgreSQL.
+**Status:** scaffold with working API and web screens. 35 backend tests pass against PostgreSQL.
 
 ## Modules
 
 | Directory | What exists |
 |---|---|
-| `api/programmes` | Programmes, courses and curricula |
+| `api/programmes` | Programmes (with whether attendance is a condition of passing), courses with the learning outcomes of their outline, and curricula |
 | `api/students` | Admissions workflow (received, screened, offered, accepted, rejected, withdrawn); accepting an offer creates the student and the student number; students are campus-scoped, with an encrypted national ID and an audited reveal |
 | `api/academics` | Academic years and terms, course offerings (coursework and examination weights must total 100), enrolments with capacity and campus checks, effective-dated grading scale, results workflow (lecturer submits, Head of Department approves, Registrar publishes), grade point averages and transcripts |
 | `api/integration` | Scoped service keys; staff and campuses pulled from the HRMS; offerings, class lists and coursework marks exchanged with the LMS |
@@ -51,7 +51,8 @@ docker network create gsa-ecosystem                                   # once per
 # In the HRMS: issue a key for this system and put it in .env as HRMS_API_KEY
 docker compose exec api python manage.py create_service_client --name srms --scopes staff:read org:read
 # Here: issue a key for the LMS (it goes in the LMS .env as SRMS_API_KEY)
-docker compose exec api python manage.py create_service_client --name lms --scopes academics:read marks:write
+docker compose exec api python manage.py create_service_client --name lms \
+  --scopes academics:read marks:write attendance:write
 docker compose -f compose.yml -f compose.ecosystem.yml up -d
 docker compose exec api python manage.py sync_hrms                     # also runs nightly at 01:30
 ```
@@ -63,8 +64,14 @@ Integration endpoints (header `Authorization: Api-Key <key>`):
 | `GET /api/v1/integration/offerings/?current=1` | `academics:read` | LMS builds course sites |
 | `GET /api/v1/integration/enrolments/?offering=<code>` | `academics:read` | LMS builds class lists |
 | `POST /api/v1/integration/coursework-marks/` | `marks:write` | LMS returns coursework percentages; only draft results accept them |
+| `POST /api/v1/integration/attendance-totals/` | `attendance:write` | LMS returns attendance totals; only for offerings of a programme marked `attendance_required` (409 `attendance_not_required` otherwise); only draft results accept them |
+| `POST /api/v1/integration/competency-results/` | `marks:write` | LMS returns units of competency (competent, not yet competent); shown on the transcript |
+| `GET /api/v1/integration/course-outcomes/?course=<code>` | `academics:read` | LMS reads the learning outcomes of each course outline |
+| `GET /api/v1/integration/terms/?current=1` | `academics:read` | LMS reads term codes and dates |
 
 No integration endpoint exposes a national ID, date of birth or address.
+
+Scopes a service key can hold: `academics:read`, `students:read`, `marks:write`, `attendance:write`. Attendance has a scope of its own, so a key can return marks without being able to change attendance. Each call is written to the audit log (`integration:<what>.read|write`), and every endpoint is described in the OpenAPI document at `/api/docs/`. Writes are idempotent: the LMS can send the same totals or competencies again and the SRMS keeps one row per student and offering (per unit, for competencies).
 
 ## Items for the Registrar to confirm
 

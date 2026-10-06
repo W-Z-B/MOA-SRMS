@@ -22,7 +22,7 @@ python manage.py seed --country GY
 # Sibling systems allowed to call this one. Each key lives in the platform's secret store and is
 # shared with the caller by reference; only its hash is stored here.
 if [ -n "${SERVICE_KEY_LMS:-}" ]; then
-  python manage.py create_service_client --name lms --scopes academics:read marks:write \
+  python manage.py create_service_client --name lms --scopes academics:read marks:write attendance:write \
     --key-env SERVICE_KEY_LMS
 fi
 

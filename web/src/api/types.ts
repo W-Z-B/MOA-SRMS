@@ -103,6 +103,29 @@ export interface Result {
   coursework_source: "manual" | "lms";
   decision_comment: string;
   allowed_actions: string[];
+  attendance: AttendanceTotal | null;
+}
+
+/** Attendance totals the LMS sends for programmes that make attendance a condition of passing. */
+export interface AttendanceTotal {
+  sessions: number;
+  present: number;
+  late: number;
+  excused: number;
+  absent: number;
+  not_recorded: number;
+  percent: string | null;
+  received_at: string;
+}
+
+/** A unit of competency assessed in the LMS. */
+export interface Competency {
+  term: string;
+  course_code: string;
+  title: string;
+  unit_code: string;
+  result: "competent" | "not_yet_competent";
+  assessed_on: string;
 }
 
 export interface TranscriptCourse {
@@ -122,6 +145,7 @@ export interface Transcript {
   campus_code: string;
   terms: { term: string; name: string; gpa: string | null; courses: TranscriptCourse[] }[];
   cumulative_gpa: string | null;
+  competencies: Competency[];
   published_only: boolean;
 }
 

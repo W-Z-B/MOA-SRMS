@@ -70,6 +70,7 @@ export function ResultsScreen({ me, campusCode }: Props) {
   }
 
   const offering = offerings.find((o) => o.id === offeringId);
+  const showAttendance = rows.some((row) => row.attendance !== null);
   const canEdit = (row: Result) => row.state === "draft" && row.allowed_actions.includes("submit");
   const value = (row: Result, key: "coursework_mark" | "exam_mark") => edits[row.id]?.[key] ?? row[key] ?? "";
   const change = (row: Result, key: "coursework_mark" | "exam_mark", v: string) =>
@@ -111,6 +112,7 @@ export function ResultsScreen({ me, campusCode }: Props) {
               <th className="num">Examination</th>
               <th className="num">Final</th>
               <th>Grade</th>
+              {showAttendance && <th className="num">Attendance</th>}
               <th>State</th>
               <th>Actions</th>
             </tr>
@@ -154,6 +156,20 @@ export function ResultsScreen({ me, campusCode }: Props) {
                 </td>
                 <td className="num">{row.final_mark ?? ""}</td>
                 <td>{row.letter}</td>
+                {showAttendance && (
+                  <td className="num">
+                    {row.attendance ? (
+                      <span
+                        title={`${row.attendance.present} present, ${row.attendance.late} late, ${row.attendance.excused} excused, ${row.attendance.absent} absent of ${row.attendance.sessions} sessions`}
+                      >
+                        {row.attendance.percent !== null ? `${row.attendance.percent}%` : "none counted"}
+                      </span>
+                    ) : (
+                      ""
+                    )}
+                    {row.attendance && <span className="pill">LMS</span>}
+                  </td>
+                )}
                 <td>
                   {STATE_LABEL[row.state] ?? row.state}
                   {row.decision_comment && <span className="muted small"> {row.decision_comment}</span>}
