@@ -1,9 +1,10 @@
+from rest_framework import serializers
 from rest_framework.routers import DefaultRouter
 
 from core.serializers import TimeStampedSerializer
 from core.views import AuditedModelViewSet
 from iam.models import Role
-from programmes.models import Course, Programme, ProgrammeCourse
+from programmes.models import Course, CourseOutcome, Programme, ProgrammeCourse
 
 WRITE = (Role.REGISTRAR, Role.ADMINISTRATOR)
 
@@ -11,13 +12,36 @@ WRITE = (Role.REGISTRAR, Role.ADMINISTRATOR)
 class ProgrammeSerializer(TimeStampedSerializer):
     class Meta(TimeStampedSerializer.Meta):
         model = Programme
-        fields = ("id", "code", "name", "award", "duration_years", "campus_codes", "is_active")
+        fields = (
+            "id",
+            "code",
+            "name",
+            "award",
+            "duration_years",
+            "campus_codes",
+            "attendance_required",
+            "is_active",
+        )
+
+
+class CourseOutcomeSerializer(TimeStampedSerializer):
+    course_code = serializers.CharField(source="course.code", read_only=True)
+
+    class Meta(TimeStampedSerializer.Meta):
+        model = CourseOutcome
+        fields = ("id", "course", "course_code", "code", "text", "position")
 
 
 class CourseSerializer(TimeStampedSerializer):
+    outcomes = serializers.SerializerMethodField()
+
     class Meta(TimeStampedSerializer.Meta):
         model = Course
-        fields = ("id", "code", "title", "credits", "department_code", "description", "is_active")
+        fields = ("id", "code", "title", "credits", "department_code", "description", "is_active", "outcomes")
+
+    def get_outcomes(self, obj) -> list[dict]:
+        """The course outline's learning outcomes, edited at /course-outcomes/."""
+        return [{"id": o.id, "code": o.code, "text": o.text} for o in obj.outcomes.all()]
 
 
 class ProgrammeCourseSerializer(TimeStampedSerializer):
@@ -33,7 +57,7 @@ class ProgrammeViewSet(AuditedModelViewSet):
 
 
 class CourseViewSet(AuditedModelViewSet):
-    queryset = Course.objects.all()
+    queryset = Course.objects.prefetch_related("outcomes")
     serializer_class = CourseSerializer
     write_roles = WRITE
 
@@ -41,6 +65,20 @@ class CourseViewSet(AuditedModelViewSet):
         qs = super().get_queryset()
         department = self.request.query_params.get("department")
         return qs.filter(department_code=department) if department else qs
+
+
+class CourseOutcomeViewSet(AuditedModelViewSet):
+    """Learning outcomes of a course outline. The Registrar and administrators keep them; the LMS reads them
+    through /api/v1/integration/course-outcomes/."""
+
+    queryset = CourseOutcome.objects.select_related("course")
+    serializer_class = CourseOutcomeSerializer
+    write_roles = WRITE
+
+    def get_queryset(self):
+        qs = super().get_queryset()
+        course = self.request.query_params.get("course")
+        return qs.filter(course_id=course) if course else qs
 
 
 class ProgrammeCourseViewSet(AuditedModelViewSet):
@@ -57,5 +95,6 @@ class ProgrammeCourseViewSet(AuditedModelViewSet):
 router = DefaultRouter()
 router.register("programmes", ProgrammeViewSet)
 router.register("courses", CourseViewSet)
+router.register("course-outcomes", CourseOutcomeViewSet)
 router.register("curriculum", ProgrammeCourseViewSet)
 urlpatterns = router.urls

@@ -129,3 +129,70 @@ class Result(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.enrolment} {self.final_mark or '-'} ({self.state})"
+
+
+class AttendanceTotal(TimeStampedModel):
+    """A student's attendance in one offering, as totalled by the LMS (LMS ADR 0008).
+
+    Kept only for offerings of programmes that make attendance a condition of passing
+    (Programme.attendance_required). The LMS sends the whole total each time; the latest replaces the last.
+    """
+
+    enrolment = models.OneToOneField(Enrolment, on_delete=models.CASCADE, related_name="attendance")
+    sessions = models.PositiveIntegerField(help_text="Sessions held that took attendance")
+    present = models.PositiveIntegerField(default=0)
+    late = models.PositiveIntegerField(default=0)
+    excused = models.PositiveIntegerField(default=0)
+    absent = models.PositiveIntegerField(default=0)
+    not_recorded = models.PositiveIntegerField(default=0)
+    percent = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Present and late over present, late and absent; empty when nothing was counted",
+    )
+    received_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["enrolment"]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(percent__isnull=True) | Q(percent__range=(0, 100)),
+                name="attendance_percent_between_0_and_100",
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.enrolment} attendance {self.percent if self.percent is not None else '-'}%"
+
+
+class CompetencyResult(TimeStampedModel):
+    """One unit of competency for a student in an offering, assessed in the LMS (LMS ADR 0017).
+
+    A unit is competent or not yet competent; a later assessment of the same unit replaces the earlier one.
+    """
+
+    class Outcome(models.TextChoices):
+        COMPETENT = "competent", "Competent"
+        NOT_YET_COMPETENT = "not_yet_competent", "Not yet competent"
+
+    class Source(models.TextChoices):
+        LMS = "lms", "Received from the LMS"
+
+    enrolment = models.ForeignKey(Enrolment, on_delete=models.CASCADE, related_name="competencies")
+    unit_code = models.CharField(max_length=40, help_text="Unit of competency, e.g. AGR-CROP-001")
+    result = models.CharField(max_length=20, choices=Outcome.choices)
+    assessed_on = models.DateField()
+    source = models.CharField(max_length=10, choices=Source.choices, default=Source.LMS)
+
+    class Meta:
+        ordering = ["enrolment", "unit_code"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["enrolment", "unit_code"], name="competency_unit_once_per_enrolment"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.enrolment} {self.unit_code} {self.result}"

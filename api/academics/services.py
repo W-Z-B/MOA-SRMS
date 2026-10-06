@@ -3,7 +3,7 @@
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from academics.models import GradeBand, Result
+from academics.models import CompetencyResult, GradeBand, Result
 
 TWO_PLACES = Decimal("0.01")
 
@@ -89,13 +89,43 @@ def transcript(student, *, published_only: bool = True) -> dict:
         entry["gpa"] = str(term_gpa) if term_gpa is not None else None
     cumulative = gpa(student, published_only=published_only)
     return {
+        **_header(student),
+        "terms": list(terms.values()),
+        "cumulative_gpa": str(cumulative) if cumulative is not None else None,
+        "competencies": competencies(student, published_only=published_only),
+        "published_only": published_only,
+    }
+
+
+def competencies(student, *, published_only: bool = True) -> list[dict]:
+    """Units of competency the LMS reported, by term and course. Published only shows those whose result
+    for the offering has been published."""
+    qs = CompetencyResult.objects.filter(enrolment__student=student).select_related(
+        "enrolment__offering__course", "enrolment__offering__term", "enrolment__result"
+    )
+    if published_only:
+        qs = qs.filter(enrolment__result__state=Result.State.PUBLISHED)
+    return [
+        {
+            "term": c.enrolment.offering.term.code,
+            "course_code": c.enrolment.offering.course.code,
+            "title": c.enrolment.offering.course.title,
+            "unit_code": c.unit_code,
+            "result": c.result,
+            "assessed_on": c.assessed_on.isoformat(),
+        }
+        for c in qs.order_by(
+            "enrolment__offering__term__starts", "enrolment__offering__course__code", "unit_code"
+        )
+    ]
+
+
+def _header(student) -> dict:
+    return {
         "student_no": student.student_no,
         "name": student.full_name,
         "programme": student.programme.name,
         "campus_code": student.campus_code,
         "intake_year": student.intake_year,
         "status": student.status,
-        "terms": list(terms.values()),
-        "cumulative_gpa": str(cumulative) if cumulative is not None else None,
-        "published_only": published_only,
     }

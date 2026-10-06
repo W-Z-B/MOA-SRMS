@@ -170,8 +170,11 @@ function StudentFile({ student, me }: { student: Student; me: Me }) {
   );
 }
 
+const COMPETENCY_LABEL = { competent: "Competent", not_yet_competent: "Not yet competent" };
+
 export function TranscriptView({ transcript }: { transcript: Transcript }) {
-  if (transcript.terms.length === 0) return <p className="muted">No {transcript.published_only ? "published " : ""}results yet.</p>;
+  if (transcript.terms.length === 0 && transcript.competencies.length === 0)
+    return <p className="muted">No {transcript.published_only ? "published " : ""}results yet.</p>;
   return (
     <>
       {transcript.terms.map((term) => (
@@ -207,6 +210,33 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
       <p>
         <strong>Cumulative average: {transcript.cumulative_gpa ?? "not available"}</strong>
       </p>
+      {transcript.competencies.length > 0 && (
+        <section>
+          <h3>Competencies</h3>
+          <table>
+            <thead>
+              <tr>
+                <th>Course</th>
+                <th>Unit</th>
+                <th>Result</th>
+                <th>Assessed</th>
+              </tr>
+            </thead>
+            <tbody>
+              {transcript.competencies.map((c) => (
+                <tr key={`${c.term}-${c.course_code}-${c.unit_code}`}>
+                  <td>
+                    {c.course_code} {c.title} <span className="muted small">{c.term}</span>
+                  </td>
+                  <td>{c.unit_code}</td>
+                  <td>{COMPETENCY_LABEL[c.result] ?? c.result}</td>
+                  <td>{c.assessed_on}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </section>
+      )}
     </>
   );
 }

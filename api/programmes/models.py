@@ -15,6 +15,10 @@ class Programme(TimeStampedModel):
     award = models.CharField(max_length=20, choices=Award.choices)
     duration_years = models.PositiveSmallIntegerField(default=2)
     campus_codes = models.JSONField(default=list, help_text="Campuses offering the programme, e.g. ['MRP']")
+    attendance_required = models.BooleanField(
+        default=False,
+        help_text="Attendance is a condition of passing; the LMS sends attendance totals for its courses",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:
@@ -37,6 +41,22 @@ class Course(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.code} {self.title}"
+
+
+class CourseOutcome(TimeStampedModel):
+    """A learning outcome in a course outline. The LMS reads them to align its assessments."""
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="outcomes")
+    code = models.CharField(max_length=20, help_text="e.g. LO1")
+    text = models.CharField(max_length=500)
+    position = models.PositiveSmallIntegerField(default=0, help_text="Order in the course outline")
+
+    class Meta:
+        ordering = ["course", "position", "code"]
+        constraints = [models.UniqueConstraint(fields=["course", "code"], name="course_outcome_code_once")]
+
+    def __str__(self) -> str:
+        return f"{self.course.code} {self.code}"
 
 
 class ProgrammeCourse(TimeStampedModel):
