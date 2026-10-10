@@ -170,5 +170,32 @@ export interface ReportResult {
   rows: Record<string, string | number | null>[];
 }
 
+export interface LedgerEntry {
+  kind: "charge" | "payment";
+  date: string;
+  description: string;
+  amount: string;
+  running_balance: string;
+}
+
+export interface Ledger {
+  student_no: string;
+  name: string;
+  entries: LedgerEntry[];
+  balance: string;
+}
+
+export interface Payment {
+  id: number;
+  student: number;
+  student_no: string;
+  amount: string;
+  paid_on: string;
+  method: "cash" | "bank_transfer" | "cheque" | "other";
+  reference: string;
+  note: string;
+  recorded_by: string | null;
+}
+
 export const RECORDS_ROLES = ["registrar", "admissions_officer", "administrator"];
 export const hasAnyRole = (me: Me, roles: string[]) => me.is_superuser || roles.some((r) => me.roles.includes(r));
