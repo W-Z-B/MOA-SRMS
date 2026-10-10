@@ -1,9 +1,14 @@
-"""Grading: final marks, letters, grade point averages and transcripts."""
+"""Grading (final marks, letters, grade point averages, transcripts) and registration (S-W02):
+prerequisite checking, registration holds, and the offering waitlist.
+"""
 
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from academics.models import GradeBand, Result
+from django.db import transaction
+
+from academics.models import Enrolment, GradeBand, RegistrationHold, Result
+from programmes.models import CoursePrerequisite
 
 TWO_PLACES = Decimal("0.01")
 
@@ -99,3 +104,68 @@ def transcript(student, *, published_only: bool = True) -> dict:
         "cumulative_gpa": str(cumulative) if cumulative is not None else None,
         "published_only": published_only,
     }
+
+
+def missing_prerequisites(student, course) -> list[str]:
+    """Prerequisite course codes the student has not yet passed in a published result."""
+    required = set(
+        CoursePrerequisite.objects.filter(course=course).values_list("prerequisite__code", flat=True)
+    )
+    if not required:
+        return []
+    passed = set(
+        Result.objects.filter(
+            enrolment__student=student,
+            enrolment__offering__course__code__in=required,
+            state=Result.State.PUBLISHED,
+            is_pass=True,
+        ).values_list("enrolment__offering__course__code", flat=True)
+    )
+    return sorted(required - passed)
+
+
+def active_holds(student):
+    return RegistrationHold.objects.filter(student=student, is_active=True)
+
+
+def next_enrolment_status(offering) -> tuple[str, int | None]:
+    """Where a new registration against this offering lands: a seat, or a place on the waitlist."""
+    taken = offering.enrolments.filter(status=Enrolment.Status.ENROLLED).count()
+    if taken < offering.capacity:
+        return Enrolment.Status.ENROLLED, None
+    last_rank = (
+        offering.enrolments.filter(status=Enrolment.Status.WAITLISTED)
+        .order_by("-waitlist_rank")
+        .values_list("waitlist_rank", flat=True)
+        .first()
+        or 0
+    )
+    return Enrolment.Status.WAITLISTED, last_rank + 1
+
+
+@transaction.atomic
+def promote_next_waitlisted(offering, *, actor=None) -> Enrolment | None:
+    """Move the first-ranked waitlisted enrolment for this offering into the freed seat, if any."""
+    next_up = (
+        offering.enrolments.select_for_update()
+        .filter(status=Enrolment.Status.WAITLISTED)
+        .order_by("waitlist_rank")
+        .first()
+    )
+    if next_up is None:
+        return None
+    next_up.status = Enrolment.Status.ENROLLED
+    next_up.waitlist_rank = None
+    next_up.updated_by = actor
+    next_up.save(update_fields=["status", "waitlist_rank", "updated_by", "updated_at"])
+    Result.objects.get_or_create(enrolment=next_up, defaults={"created_by": actor, "updated_by": actor})
+    from notifications.services import notify
+
+    notify(
+        [next_up.student.user],
+        title=f"You are enrolled: {next_up.offering.course.code}",
+        body=f"A place opened in {next_up.offering.course.title}; you have moved off the waitlist.",
+        link="/students",
+        dedupe_key=f"enrolment:{next_up.id}:promoted",
+    )
+    return next_up

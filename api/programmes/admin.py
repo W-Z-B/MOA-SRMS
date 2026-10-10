@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from programmes.models import Course, Programme, ProgrammeCourse
+from programmes.models import Course, CoursePrerequisite, Programme, ProgrammeCourse
 
 
 @admin.register(Programme)
@@ -15,3 +15,4 @@ class CourseAdmin(admin.ModelAdmin):
 
 
 admin.site.register(ProgrammeCourse)
+admin.site.register(CoursePrerequisite)

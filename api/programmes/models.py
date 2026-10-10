@@ -59,3 +59,27 @@ class ProgrammeCourse(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.programme.code} Y{self.year}S{self.semester} {self.course.code}"
+
+
+class CoursePrerequisite(TimeStampedModel):
+    """A course that a student must have already passed before enrolling in another (S-W02).
+
+    The simplest useful shape: a course may require any number of other courses, with no
+    partial credit and no minimum grade beyond a pass. A richer rule (a minimum letter grade,
+    "one of" groups, a corequisite allowed at the same time) can be added later if GSA needs it.
+    """
+
+    course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name="prerequisites")
+    prerequisite = models.ForeignKey(Course, on_delete=models.PROTECT, related_name="required_for")
+
+    class Meta:
+        unique_together = [("course", "prerequisite")]
+        ordering = ["course", "prerequisite"]
+        constraints = [
+            models.CheckConstraint(
+                condition=~models.Q(course=models.F("prerequisite")), name="course_prerequisite_not_itself"
+            )
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.course.code} requires {self.prerequisite.code}"
