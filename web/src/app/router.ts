@@ -22,14 +22,17 @@ export interface NavItem {
 
 const RECORDS = ["registrar", "admissions_officer", "administrator"];
 const ACADEMIC = ["registrar", "hod", "lecturer", "principal", "auditor", "administrator"];
+const STANDING_STAFF = ["registrar", "principal", "auditor", "administrator"];
 
 export const NAV: NavItem[] = [
   { path: "/", label: "Dashboard", roles: [...RECORDS, ...ACADEMIC, "finance"] },
   { path: "/students", label: "Students", roles: [...RECORDS, ...ACADEMIC, "finance"] },
   { path: "/admissions", label: "Admissions", roles: [...RECORDS, "principal", "auditor"] },
   { path: "/results", label: "Results", roles: ACADEMIC },
+  { path: "/standing", label: "Academic standing", roles: STANDING_STAFF },
   { path: "/fees", label: "Fees", roles: ["finance", "registrar", "administrator"] },
   { path: "/my-results", label: "My results", roles: ["student"] },
+  { path: "/my-standing", label: "My standing", roles: ["student"] },
   { path: "/my-balance", label: "My balance", roles: ["student"] },
   { path: "/admin", label: "Admin", roles: ["registrar", "administrator"] },
 ];
