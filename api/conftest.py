@@ -99,6 +99,11 @@ def hod(make_user):
 
 
 @pytest.fixture
+def finance(make_user):
+    return make_user("finance.office", "finance", campus_code="MRP", email="finance@gsa.edu.gy")
+
+
+@pytest.fixture
 def programme(seeded):
     from programmes.models import Programme
 

@@ -6,6 +6,8 @@ import { STAFF_ROLES, useHashRoute } from "./app/router";
 import { AdmissionsScreen } from "./features/admissions/AdmissionsScreen";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { DashboardScreen } from "./features/dashboard/DashboardScreen";
+import { FeesScreen } from "./features/fees/FeesScreen";
+import { MyBalanceScreen } from "./features/fees/MyBalanceScreen";
 import { ComingSoon } from "./features/placeholder/ComingSoon";
 import { MyResultsScreen } from "./features/results/MyResultsScreen";
 import { ResultsScreen } from "./features/results/ResultsScreen";
@@ -57,6 +59,8 @@ export default function App() {
     screen = <StudentsScreen me={me} campusCode={campusCode} initialId={idIn("/students")} onNavigate={navigate} />;
   else if (path.startsWith("/admissions")) screen = <AdmissionsScreen me={me} campusCode={campusCode} />;
   else if (path.startsWith("/results")) screen = <ResultsScreen me={me} campusCode={campusCode} />;
+  else if (path.startsWith("/fees")) screen = <FeesScreen />;
+  else if (path.startsWith("/my-balance")) screen = <MyBalanceScreen />;
   else if (path.startsWith("/my-results")) screen = <MyResultsScreen />;
   else if (path.startsWith("/admin"))
     screen = <ComingSoon title="Admin" sprint="a later sprint" requirement="programmes, calendar, grading scale" />;

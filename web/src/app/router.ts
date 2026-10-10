@@ -28,7 +28,9 @@ export const NAV: NavItem[] = [
   { path: "/students", label: "Students", roles: [...RECORDS, ...ACADEMIC, "finance"] },
   { path: "/admissions", label: "Admissions", roles: [...RECORDS, "principal", "auditor"] },
   { path: "/results", label: "Results", roles: ACADEMIC },
+  { path: "/fees", label: "Fees", roles: ["finance", "registrar", "administrator"] },
   { path: "/my-results", label: "My results", roles: ["student"] },
+  { path: "/my-balance", label: "My balance", roles: ["student"] },
   { path: "/admin", label: "Admin", roles: ["registrar", "administrator"] },
 ];
 
