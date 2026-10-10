@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     "academics",
     "fees",
     "standing",
+    "advising",
     "reports",
 ]
 
