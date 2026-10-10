@@ -91,6 +91,13 @@ export interface ApplicationDocument {
   created_at: string;
 }
 
+export interface Term {
+  id: number;
+  code: string;
+  name: string;
+  is_current: boolean;
+}
+
 export interface Offering {
   id: number;
   code: string;
@@ -212,6 +219,48 @@ export interface Payment {
   reference: string;
   note: string;
   recorded_by: string | null;
+}
+
+export interface StandingDecision {
+  id: number;
+  term: number;
+  term_code: string;
+  previous_tier: string;
+  tier: "good" | "probation" | "suspension" | "dismissal";
+  cumulative_gpa: string | null;
+  is_automatic: boolean;
+  reason: string;
+  decided_by_name: string | null;
+  has_appeal: boolean;
+  created_at: string;
+}
+
+export interface AcademicStanding {
+  id: number;
+  student: number;
+  student_no: string;
+  student_name: string;
+  campus_code: string;
+  programme_code: string;
+  tier: "good" | "probation" | "suspension" | "dismissal";
+  cumulative_gpa: string | null;
+  as_of_term_code: string;
+  computed_at: string | null;
+  decisions: StandingDecision[];
+}
+
+export interface StandingAppeal {
+  id: number;
+  decision: number;
+  student_no: string;
+  student_name: string;
+  decision_tier: string;
+  grounds: string;
+  outcome: "" | "upheld" | "denied";
+  outcome_reason: string;
+  heard_by_name: string | null;
+  heard_at: string | null;
+  created_at: string;
 }
 
 export const RECORDS_ROLES = ["registrar", "admissions_officer", "administrator"];
