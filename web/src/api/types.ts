@@ -263,5 +263,48 @@ export interface StandingAppeal {
   created_at: string;
 }
 
+export interface AdvisorAssignment {
+  id: number;
+  student: number;
+  student_no: string;
+  student_name: string;
+  campus_code: string;
+  programme_code: string;
+  advisor_employee_no: string;
+  advisor_name: string | null;
+  started_at: string;
+  ended_at: string | null;
+  ended_reason: string;
+  created_at: string;
+}
+
+export interface AdvisingNote {
+  id: number;
+  student: number;
+  student_no: string;
+  student_name: string;
+  advisor_employee_no: string;
+  met_on: string;
+  summary: string;
+  concern: "none" | "academic" | "financial" | "attendance" | "personal";
+  concern_display: string;
+  flagged_for_registrar: boolean;
+  created_at: string;
+}
+
+export interface Advisee {
+  id: number;
+  student_no: string;
+  full_name: string;
+  campus_code: string;
+  status: string;
+  programme_code: string;
+  programme_name: string;
+  standing_tier: "good" | "probation" | "suspension" | "dismissal" | null;
+  cumulative_gpa: string | null;
+  active_holds: string[];
+  current_offerings: string[];
+}
+
 export const RECORDS_ROLES = ["registrar", "admissions_officer", "administrator"];
 export const hasAnyRole = (me: Me, roles: string[]) => me.is_superuser || roles.some((r) => me.roles.includes(r));

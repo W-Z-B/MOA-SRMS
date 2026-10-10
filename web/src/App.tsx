@@ -4,6 +4,9 @@ import { hasAnyRole, type Me } from "./api/types";
 import { Shell } from "./app/Shell";
 import { STAFF_ROLES, useHashRoute } from "./app/router";
 import { AdmissionsScreen } from "./features/admissions/AdmissionsScreen";
+import { AdvisingScreen } from "./features/advising/AdvisingScreen";
+import { MyAdviseesScreen } from "./features/advising/MyAdviseesScreen";
+import { MyAdvisorScreen } from "./features/advising/MyAdvisorScreen";
 import { LoginScreen } from "./features/auth/LoginScreen";
 import { DashboardScreen } from "./features/dashboard/DashboardScreen";
 import { FeesScreen } from "./features/fees/FeesScreen";
@@ -62,10 +65,13 @@ export default function App() {
   else if (path.startsWith("/admissions")) screen = <AdmissionsScreen me={me} campusCode={campusCode} />;
   else if (path.startsWith("/results")) screen = <ResultsScreen me={me} campusCode={campusCode} />;
   else if (path.startsWith("/standing")) screen = <StandingScreen campusCode={campusCode} />;
+  else if (path.startsWith("/advising")) screen = <AdvisingScreen />;
   else if (path.startsWith("/fees")) screen = <FeesScreen />;
   else if (path.startsWith("/my-balance")) screen = <MyBalanceScreen />;
   else if (path.startsWith("/my-results")) screen = <MyResultsScreen />;
   else if (path.startsWith("/my-standing")) screen = <MyStandingScreen />;
+  else if (path.startsWith("/my-advisees")) screen = <MyAdviseesScreen />;
+  else if (path.startsWith("/my-advisor")) screen = <MyAdvisorScreen />;
   else if (path.startsWith("/admin"))
     screen = <ComingSoon title="Admin" sprint="a later sprint" requirement="programmes, calendar, grading scale" />;
   else screen = <ComingSoon title="Not found" sprint="a later sprint" requirement="unknown route" />;
