@@ -107,6 +107,47 @@ def test_unconfigured_sibling_raises_a_clear_error(settings):
 
 
 @pytest.mark.django_db
+def test_enrolment_summary_counts_by_stage_with_no_personal_data(student, programme):
+    from datetime import date
+
+    from students.models import Application
+
+    Application.objects.create(
+        reference="APP-0001",
+        first_name="Ravi",
+        last_name="Singh",
+        date_of_birth=date(2006, 4, 2),
+        programme=programme,
+        campus_code="MRP",
+        intake_year=2026,
+        state=Application.State.RECEIVED,
+    )
+    Application.objects.create(
+        reference="APP-0002",
+        first_name="Anil",
+        last_name="Ramdeen",
+        date_of_birth=date(2006, 5, 1),
+        programme=programme,
+        campus_code="MRP",
+        intake_year=2026,
+        state=Application.State.ACCEPTED,
+    )
+    _, key = ServiceClient.issue("insights", ["enrolment:read"])
+    _, weak = ServiceClient.issue("other", ["academics:read"])
+
+    assert _service(None).get("/api/v1/integration/enrolment-summary/").status_code in (401, 403)
+    assert _service(weak).get("/api/v1/integration/enrolment-summary/").status_code == 403
+
+    rows = _service(key).get("/api/v1/integration/enrolment-summary/").json()
+    by_stage = {(r["campus_code"], r["programme_code"], r["stage"]): r["count"] for r in rows}
+    assert by_stage[("MRP", programme.code, "applied")] == 2
+    assert by_stage[("MRP", programme.code, "admitted")] == 1
+    assert by_stage[("MRP", programme.code, "enrolled")] == 1
+    assert not any({"first_name", "last_name", "reference", "student_no"} & set(r) for r in rows)
+    assert AuditLog.objects.filter(action="integration:enrolment_summary.read").exists()
+
+
+@pytest.mark.django_db
 def test_reference_and_reports_for_staff(student, registrar, client_for):
     registry = client_for(registrar)
     assert {c["code"] for c in registry.get("/api/v1/reference/campuses/").json()} == {"MRP", "ESQ"}

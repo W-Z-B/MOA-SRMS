@@ -4,6 +4,7 @@ Consumed by the LMS. Reference endpoints for the SRMS web app are here too.
 """
 
 from django.db import transaction
+from django.db.models import Count
 from django.urls import path
 from drf_spectacular.utils import OpenApiParameter, extend_schema, inline_serializer
 from rest_framework import serializers
@@ -18,6 +19,7 @@ from iam.permissions import RolePermission
 from integration.auth import ServiceKeyAuthentication, scope
 from integration.models import CampusRef, StaffRef
 from programmes.models import Course, Programme
+from students.models import Application, Student
 
 
 class Pager(PageNumberPagination):
@@ -458,6 +460,53 @@ def staff(request):
     )
 
 
+class EnrolmentSummaryRowSerializer(serializers.Serializer):
+    campus_code = serializers.CharField()
+    programme_code = serializers.CharField(allow_blank=True)
+    stage = serializers.ChoiceField(choices=["applied", "admitted", "enrolled", "graduated"])
+    count = serializers.IntegerField()
+
+
+def _funnel_rows(queryset, stage: str) -> list[dict]:
+    grouped = (
+        queryset.values("campus_code", "programme__code").annotate(n=Count("id")).order_by("campus_code")
+    )
+    return [
+        {
+            "campus_code": r["campus_code"],
+            "programme_code": r["programme__code"],
+            "stage": stage,
+            "count": r["n"],
+        }
+        for r in grouped
+    ]
+
+
+@extend_schema(
+    responses=EnrolmentSummaryRowSerializer(many=True),
+    summary="Enrolment-funnel counts by campus and programme (scope enrolment:read)",
+)
+@api_view(["GET"])
+@authentication_classes([ServiceKeyAuthentication])
+@permission_classes([scope("enrolment:read")])
+def enrolment_summary(request):
+    """Aggregated counts only (item X-02 of the ecosystem gap analysis): no applicant or student name.
+
+    "applied" counts every application ever received for that campus and programme; "admitted" is the
+    subset offered or accepted a place; "enrolled" and "graduated" come from the student's own current
+    status. There is no "retained" stage yet: that needs a cohort tracked across terms, which this system
+    does not keep today (see the Insights repository's ADR on this)."""
+    rows = _funnel_rows(Application.objects.all(), "applied")
+    rows += _funnel_rows(
+        Application.objects.filter(state__in=[Application.State.OFFERED, Application.State.ACCEPTED]),
+        "admitted",
+    )
+    rows += _funnel_rows(Student.objects.filter(status=Student.Status.ENROLLED), "enrolled")
+    rows += _funnel_rows(Student.objects.filter(status=Student.Status.GRADUATED), "graduated")
+    _audit(request, "enrolment_summary.read", {"count": len(rows)})
+    return Response(EnrolmentSummaryRowSerializer(rows, many=True).data)
+
+
 integration_urls = [
     path("offerings/", offerings, name="integration-offerings"),
     path("enrolments/", enrolments, name="integration-enrolments"),
@@ -466,6 +515,7 @@ integration_urls = [
     path("course-outcomes/", course_outcomes, name="integration-course-outcomes"),
     path("competency-results/", competency_results, name="integration-competencies"),
     path("terms/", terms, name="integration-terms"),
+    path("enrolment-summary/", enrolment_summary, name="integration-enrolment-summary"),
 ]
 reference_urls = [
     path("campuses/", campuses, name="reference-campuses"),
