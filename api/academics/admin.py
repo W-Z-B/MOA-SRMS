@@ -7,6 +7,7 @@ from academics.models import (
     GradeBand,
     RegistrationHold,
     Result,
+    ResultCorrection,
     Term,
 )
 
@@ -37,3 +38,9 @@ class RegistrationHoldAdmin(admin.ModelAdmin):
 class ResultAdmin(admin.ModelAdmin):
     list_display = ("enrolment", "coursework_mark", "exam_mark", "final_mark", "letter", "state")
     list_filter = ("state",)
+
+
+@admin.register(ResultCorrection)
+class ResultCorrectionAdmin(admin.ModelAdmin):
+    list_display = ("result", "previous_final_mark", "new_final_mark", "created_by", "created_at")
+    readonly_fields = [f.name for f in ResultCorrection._meta.fields]
