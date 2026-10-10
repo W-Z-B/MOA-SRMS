@@ -1,6 +1,16 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { errorMessage, get, post } from "../../api/client";
-import { RECORDS_ROLES, hasAnyRole, type Me, type Paginated, type Student, type Transcript } from "../../api/types";
+import {
+  RECORDS_ROLES,
+  hasAnyRole,
+  type Enrolment,
+  type Me,
+  type Offering,
+  type Paginated,
+  type RegistrationHold,
+  type Student,
+  type Transcript,
+} from "../../api/types";
 
 interface Props {
   me: Me;
@@ -98,7 +108,7 @@ export function StudentsScreen({ me, campusCode, initialId, onNavigate }: Props)
 }
 
 function StudentFile({ student, me }: { student: Student; me: Me }) {
-  const [tab, setTab] = useState<"details" | "transcript">("details");
+  const [tab, setTab] = useState<"details" | "transcript" | "registration">("details");
   const [nationalId, setNationalId] = useState<string | null>(null);
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +139,7 @@ function StudentFile({ student, me }: { student: Student; me: Me }) {
         {student.student_no} · {student.programme_name} · {student.campus_code}
       </p>
       <div className="tabs" role="tablist">
-        {(["details", "transcript"] as const).map((t) => (
+        {(["details", "registration", "transcript"] as const).map((t) => (
           <button key={t} role="tab" aria-selected={tab === t} className={tab === t ? "tab active" : "tab"} onClick={() => setTab(t)}>
             {t[0].toUpperCase() + t.slice(1)}
           </button>
@@ -165,7 +175,132 @@ function StudentFile({ student, me }: { student: Student; me: Me }) {
           )}
         </dl>
       )}
+      {tab === "registration" && <RegistrationPanel student={student} />}
       {tab === "transcript" && transcript && <TranscriptView transcript={transcript} />}
+    </>
+  );
+}
+
+const HOLD_LABEL: Record<string, string> = {
+  missing_document: "Missing document",
+  financial: "Outstanding balance",
+  academic_standing: "Academic standing",
+  other: "Other",
+};
+
+/** Course add/drop for a registrar, and the holds that block a new registration (1.46, S-W02). */
+function RegistrationPanel({ student }: { student: Student }) {
+  const [enrolments, setEnrolments] = useState<Enrolment[]>([]);
+  const [holds, setHolds] = useState<RegistrationHold[]>([]);
+  const [offerings, setOfferings] = useState<Offering[]>([]);
+  const [chosen, setChosen] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(() => {
+    Promise.all([
+      get<Paginated<Enrolment>>(`/academics/enrolments/?student=${student.id}`),
+      get<Paginated<RegistrationHold>>(`/academics/registration-holds/?student=${student.id}&active=1`),
+      get<Paginated<Offering>>(`/academics/offerings/?campus_code=${student.campus_code}`),
+    ])
+      .then(([e, h, o]) => {
+        setEnrolments(e.results);
+        setHolds(h.results);
+        setOfferings(o.results);
+        setError(null);
+      })
+      .catch((err) => setError(errorMessage(err, "Could not load registration.")));
+  }, [student.id, student.campus_code]);
+
+  useEffect(load, [load]);
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    if (!chosen) return;
+    try {
+      await post("/academics/enrolments/", { student: student.id, offering: Number(chosen) });
+      setChosen("");
+      load();
+    } catch (err) {
+      setError(errorMessage(err, "Could not add the course."));
+    }
+  }
+
+  async function drop(id: number) {
+    try {
+      await post(`/academics/enrolments/${id}/drop/`);
+      load();
+    } catch (err) {
+      setError(errorMessage(err, "Could not drop the course."));
+    }
+  }
+
+  const active = enrolments.filter((en) => en.status === "enrolled" || en.status === "waitlisted");
+  const alreadyTaken = new Set(active.map((en) => en.offering));
+
+  return (
+    <>
+      {error && <p className="error">{error}</p>}
+      {holds.length > 0 && (
+        <div role="alert" className="error">
+          <strong>Registration on hold:</strong>
+          <ul>
+            {holds.map((h) => (
+              <li key={h.id}>
+                {HOLD_LABEL[h.reason] ?? h.reason_display} ({h.source}){h.detail && ` — ${h.detail}`}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      <table>
+        <thead>
+          <tr>
+            <th>Offering</th>
+            <th>Status</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody>
+          {active.map((en) => (
+            <tr key={en.id}>
+              <td>{en.offering_code}</td>
+              <td>
+                {en.status === "waitlisted" ? `Waitlisted (#${en.waitlist_rank})` : "Enrolled"}
+              </td>
+              <td>
+                <button className="secondary" onClick={() => drop(en.id)}>
+                  Drop
+                </button>
+              </td>
+            </tr>
+          ))}
+          {active.length === 0 && (
+            <tr>
+              <td colSpan={3} className="muted">
+                No courses added yet.
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
+      <form className="stack" onSubmit={add}>
+        <label>
+          Add a course
+          <select aria-label="Choose an offering" value={chosen} onChange={(e) => setChosen(e.target.value)}>
+            <option value="">Choose an offering</option>
+            {offerings
+              .filter((o) => !alreadyTaken.has(o.id))
+              .map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.code} ({o.enrolled}/{o.capacity})
+                </option>
+              ))}
+          </select>
+        </label>
+        <button type="submit" disabled={!chosen}>
+          Add
+        </button>
+      </form>
     </>
   );
 }

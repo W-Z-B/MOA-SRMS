@@ -99,9 +99,34 @@ export interface Offering {
   term_code: string;
   campus_code: string;
   lecturer_employee_no: string;
+  capacity: number;
   coursework_weight: string;
   exam_weight: string;
   enrolled: number;
+}
+
+export interface Enrolment {
+  id: number;
+  student: number;
+  student_no: string;
+  student_name: string;
+  offering: number;
+  offering_code: string;
+  status: "enrolled" | "waitlisted" | "dropped" | "completed";
+  waitlist_rank: number | null;
+}
+
+export interface RegistrationHold {
+  id: number;
+  student: number;
+  student_no: string;
+  reason: "missing_document" | "financial" | "academic_standing" | "other";
+  reason_display: string;
+  source: string;
+  detail: string;
+  is_active: boolean;
+  resolved_at: string | null;
+  created_at: string;
 }
 
 export interface Result {

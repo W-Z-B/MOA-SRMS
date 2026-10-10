@@ -19,13 +19,13 @@ see the CI workflow for current counts.
 
 | Directory | What exists |
 |---|---|
-| `api/programmes` | Programmes, courses and curricula; a programme may set an intake capacity |
+| `api/programmes` | Programmes, courses, curricula and course prerequisites; a programme may set an intake capacity |
 | `api/students` | Admissions workflow (submitted, under_review, interview, assessed, offered, waitlisted, accepted, declined, rejected, withdrawn) with document upload and a per-programme, per-intake waitlist; accepting an offer creates the student and the student number; students are campus-scoped, with an encrypted national ID and an audited reveal |
-| `api/academics` | Academic years and terms, course offerings (coursework and examination weights must total 100), enrolments with capacity and campus checks, effective-dated grading scale, results workflow (lecturer submits, Head of Department approves, Registrar publishes), grade point averages and transcripts |
+| `api/academics` | Academic years and terms, course offerings (coursework and examination weights must total 100), enrolments with prerequisite checking, capacity, a per-offering waitlist and campus checks, registration holds (missing document, financial, academic standing, other), effective-dated grading scale, results workflow (lecturer submits, Head of Department approves, Registrar publishes), grade point averages and transcripts |
 | `api/integration` | Scoped service keys; staff and campuses pulled from the HRMS; offerings, class lists and coursework marks exchanged with the LMS |
 | `api/reports` | Enrolment by programme and campus, results summary with pass rates, admissions funnel |
 | `api/core`, `api/audit`, `api/iam`, `api/notifications` | Shared skeleton: base models, field encryption, insert-only audit log, roles with campus and department scopes, session login with TOTP, account lockout, notifications |
-| `web/` | Dashboard, student directory with file and transcript, admissions review file (workflow actions, scoring, document upload, waitlist), marks entry and results workflow, a student's own results |
+| `web/` | Dashboard, student directory with file, course registration (add/drop, holds) and transcript, admissions review file (workflow actions, scoring, document upload, waitlist), marks entry and results workflow, a student's own results |
 
 ## Setup
 

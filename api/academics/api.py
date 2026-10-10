@@ -3,14 +3,31 @@
 from django.db import transaction
 from django.db.models import Q
 from django.urls import path
+from django.utils import timezone
 from rest_framework import serializers, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.routers import DefaultRouter
 
-from academics.models import AcademicYear, CourseOffering, Enrolment, GradeBand, Result, Term
-from academics.services import compute, transcript
+from academics.models import (
+    AcademicYear,
+    CourseOffering,
+    Enrolment,
+    GradeBand,
+    RegistrationHold,
+    Result,
+    Term,
+)
+from academics.services import (
+    active_holds,
+    compute,
+    missing_prerequisites,
+    next_enrolment_status,
+    promote_next_waitlisted,
+    transcript,
+)
 from academics.workflow import RESULT, owns_offering
+from audit.services import record, snapshot
 from core.serializers import TimeStampedSerializer
 from core.views import AuditedModelViewSet
 from core.workflow import WorkflowError
@@ -66,17 +83,55 @@ class EnrolmentSerializer(TimeStampedSerializer):
 
     class Meta(TimeStampedSerializer.Meta):
         model = Enrolment
-        fields = ("id", "student", "student_no", "student_name", "offering", "offering_code", "status")
+        fields = (
+            "id",
+            "student",
+            "student_no",
+            "student_name",
+            "offering",
+            "offering_code",
+            "status",
+            "waitlist_rank",
+        )
+        read_only_fields = TimeStampedSerializer.Meta.read_only_fields + ("status", "waitlist_rank")
 
     def validate(self, attrs):
         offering = attrs.get("offering")
         student = attrs.get("student")
         if offering and student and self.instance is None:
-            if offering.enrolments.filter(status=Enrolment.Status.ENROLLED).count() >= offering.capacity:
-                raise serializers.ValidationError({"offering": "The offering is full."})
             if student.campus_code != offering.campus_code:
                 raise serializers.ValidationError({"offering": "The offering is at a different campus."})
+            holds = active_holds(student)
+            if holds.exists():
+                reasons = ", ".join(sorted({h.get_reason_display() for h in holds}))
+                raise serializers.ValidationError({"student": f"Registration is on hold: {reasons}."})
+            missing = missing_prerequisites(student, offering.course)
+            if missing:
+                raise serializers.ValidationError(
+                    {"offering": f"Prerequisite not met: {', '.join(missing)}."}
+                )
         return attrs
+
+
+class RegistrationHoldSerializer(TimeStampedSerializer):
+    student_no = serializers.CharField(source="student.student_no", read_only=True)
+    reason_display = serializers.CharField(source="get_reason_display", read_only=True)
+
+    class Meta(TimeStampedSerializer.Meta):
+        model = RegistrationHold
+        fields = (
+            "id",
+            "student",
+            "student_no",
+            "reason",
+            "reason_display",
+            "source",
+            "detail",
+            "is_active",
+            "resolved_at",
+            "created_at",
+        )
+        read_only_fields = TimeStampedSerializer.Meta.read_only_fields + ("resolved_at",)
 
 
 class GradeBandSerializer(TimeStampedSerializer):
@@ -183,9 +238,12 @@ class CourseOfferingViewSet(AuditedModelViewSet):
 
 
 class EnrolmentViewSet(AuditedModelViewSet):
+    """Course add is capacity- and waitlist-aware; drop is its own action (see `drop`)."""
+
     serializer_class = EnrolmentSerializer
     read_roles = STAFF_READ
     write_roles = REGISTRY
+    http_method_names = ["get", "post", "head", "options"]
 
     def get_queryset(self):
         user = self.request.user
@@ -199,15 +257,43 @@ class EnrolmentViewSet(AuditedModelViewSet):
             qs = qs.filter(offering_id=params["offering"])
         if params.get("student"):
             qs = qs.filter(student_id=params["student"])
+        if params.get("status"):
+            qs = qs.filter(status=params["status"])
         return qs
 
     @transaction.atomic
     def perform_create(self, serializer):
+        offering = serializer.validated_data["offering"]
+        status_value, rank = next_enrolment_status(offering)
+        serializer.validated_data["status"] = status_value
+        serializer.validated_data["waitlist_rank"] = rank
         super().perform_create(serializer)
-        Result.objects.get_or_create(
-            enrolment=serializer.instance,
-            defaults={"created_by": self.request.user, "updated_by": self.request.user},
-        )
+        if status_value == Enrolment.Status.ENROLLED:
+            Result.objects.get_or_create(
+                enrolment=serializer.instance,
+                defaults={"created_by": self.request.user, "updated_by": self.request.user},
+            )
+
+    @action(detail=True, methods=["post"])
+    def drop(self, request, pk=None):
+        """Withdraw from an offering. Dropping an enrolled seat promotes the next waitlisted student."""
+        instance = self.get_object()
+        if instance.status not in (Enrolment.Status.ENROLLED, Enrolment.Status.WAITLISTED):
+            return Response(
+                {"code": "invalid_state", "detail": "Only an enrolled or waitlisted entry can be dropped."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        with transaction.atomic():
+            before = snapshot(instance)
+            was_enrolled = instance.status == Enrolment.Status.ENROLLED
+            instance.status = Enrolment.Status.DROPPED
+            instance.waitlist_rank = None
+            instance.updated_by = request.user
+            instance.save(update_fields=["status", "waitlist_rank", "updated_by", "updated_at"])
+            record(request, "drop", instance, before=before, after=snapshot(instance))
+            if was_enrolled:
+                promote_next_waitlisted(instance.offering, actor=request.user)
+        return Response(self.get_serializer(instance).data)
 
 
 class ResultViewSet(AuditedModelViewSet):
@@ -278,6 +364,40 @@ class ResultViewSet(AuditedModelViewSet):
         return Response(self.get_serializer(instance).data)
 
 
+class RegistrationHoldViewSet(AuditedModelViewSet):
+    """Holds that block new course registration (never a drop). See `academics.models.RegistrationHold`."""
+
+    serializer_class = RegistrationHoldSerializer
+    read_roles = STAFF_READ
+    write_roles = REGISTRY
+    http_method_names = ["get", "post", "head", "options"]
+
+    def get_queryset(self):
+        qs = scope_queryset(
+            self.request.user,
+            RegistrationHold.objects.select_related("student"),
+            campus_field="student__campus_code",
+        )
+        params = self.request.query_params
+        if params.get("student"):
+            qs = qs.filter(student_id=params["student"])
+        if params.get("active") is not None:
+            qs = qs.filter(is_active=params["active"] in ("1", "true", "True"))
+        return qs
+
+    @action(detail=True, methods=["post"])
+    def resolve(self, request, pk=None):
+        hold = self.get_object()
+        before = snapshot(hold)
+        hold.is_active = False
+        hold.resolved_at = timezone.now()
+        hold.resolved_by = request.user
+        hold.updated_by = request.user
+        hold.save(update_fields=["is_active", "resolved_at", "resolved_by", "updated_by", "updated_at"])
+        record(request, "resolve", hold, before=before, after=snapshot(hold))
+        return Response(self.get_serializer(hold).data)
+
+
 @api_view(["GET"])
 @permission_classes([RolePermission])
 def my_results(request):
@@ -296,5 +416,6 @@ router.register("terms", TermViewSet)
 router.register("grade-bands", GradeBandViewSet)
 router.register("offerings", CourseOfferingViewSet, basename="offering")
 router.register("enrolments", EnrolmentViewSet, basename="enrolment")
+router.register("registration-holds", RegistrationHoldViewSet, basename="registration-hold")
 router.register("results", ResultViewSet, basename="result")
 urlpatterns = [path("my-results/", my_results, name="my-results"), *router.urls]

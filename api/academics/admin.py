@@ -1,6 +1,14 @@
 from django.contrib import admin
 
-from academics.models import AcademicYear, CourseOffering, Enrolment, GradeBand, Result, Term
+from academics.models import (
+    AcademicYear,
+    CourseOffering,
+    Enrolment,
+    GradeBand,
+    RegistrationHold,
+    Result,
+    Term,
+)
 
 admin.site.register(AcademicYear)
 admin.site.register(Term)
@@ -15,8 +23,14 @@ class CourseOfferingAdmin(admin.ModelAdmin):
 
 @admin.register(Enrolment)
 class EnrolmentAdmin(admin.ModelAdmin):
-    list_display = ("student", "offering", "status")
+    list_display = ("student", "offering", "status", "waitlist_rank")
     list_filter = ("status",)
+
+
+@admin.register(RegistrationHold)
+class RegistrationHoldAdmin(admin.ModelAdmin):
+    list_display = ("student", "reason", "source", "is_active", "created_at")
+    list_filter = ("reason", "source", "is_active")
 
 
 @admin.register(Result)

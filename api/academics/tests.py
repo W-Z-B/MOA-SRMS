@@ -3,7 +3,7 @@ from decimal import Decimal
 import pytest
 from django.db import IntegrityError, transaction
 
-from academics.models import CourseOffering, Enrolment, Result
+from academics.models import CourseOffering, Enrolment, RegistrationHold, Result
 from academics.services import compute, gpa
 from notifications.models import Notification
 
@@ -93,11 +93,101 @@ def test_offering_weights_must_total_100(offering):
 
 
 @pytest.mark.django_db
-def test_enrolment_respects_capacity_and_campus(student, offering, registrar, client_for):
+def test_enrolment_rejects_the_wrong_campus(student, offering, registrar, client_for):
     registry = client_for(registrar)
-    CourseOffering.objects.filter(pk=offering.pk).update(capacity=0)
-    full = registry.post("/api/v1/academics/enrolments/", {"student": student.id, "offering": offering.id})
-    assert full.status_code == 400 and "full" in str(full.json())
-    CourseOffering.objects.filter(pk=offering.pk).update(capacity=40, campus_code="ESQ")
+    CourseOffering.objects.filter(pk=offering.pk).update(campus_code="ESQ")
     wrong = registry.post("/api/v1/academics/enrolments/", {"student": student.id, "offering": offering.id})
     assert wrong.status_code == 400 and "campus" in str(wrong.json())
+
+
+@pytest.mark.django_db
+def test_a_full_offering_waitlists_and_dropping_a_seat_promotes_the_waitlist(
+    programme, offering, registrar, make_user, client_for
+):
+    from students.models import Student
+
+    registry = client_for(registrar)
+    CourseOffering.objects.filter(pk=offering.pk).update(capacity=1)
+
+    def new_student(no):
+        user = make_user(no, "student", campus_code="MRP")
+        return Student.objects.create(
+            student_no=no,
+            user=user,
+            first_name="Test",
+            last_name=no,
+            date_of_birth="2006-01-01",
+            campus_code="MRP",
+            programme=programme,
+            intake_year=2026,
+        )
+
+    first, second = new_student("26MRP0101"), new_student("26MRP0102")
+    url = "/api/v1/academics/enrolments/"
+
+    first_enrolment = registry.post(url, {"student": first.id, "offering": offering.id}).json()
+    assert first_enrolment["status"] == "enrolled" and first_enrolment["waitlist_rank"] is None
+
+    second_enrolment = registry.post(url, {"student": second.id, "offering": offering.id}).json()
+    assert second_enrolment["status"] == "waitlisted" and second_enrolment["waitlist_rank"] == 1
+    assert Result.objects.filter(enrolment_id=second_enrolment["id"]).exists() is False
+
+    dropped = registry.post(f"{url}{first_enrolment['id']}/drop/").json()
+    assert dropped["status"] == "dropped"
+
+    promoted = Enrolment.objects.get(pk=second_enrolment["id"])
+    assert promoted.status == Enrolment.Status.ENROLLED and promoted.waitlist_rank is None
+    assert Result.objects.filter(enrolment=promoted).exists()
+    assert Notification.objects.filter(recipient=second.user, title__startswith="You are enrolled").exists()
+
+
+@pytest.mark.django_db
+def test_prerequisite_must_be_passed_before_enrolling(student, offering, registrar, client_for):
+    from programmes.models import Course, CoursePrerequisite
+
+    advanced_course = Course.objects.create(code="AGR201", title="Advanced Crop Science", credits=3)
+    advanced = CourseOffering.objects.create(
+        code="AGR201-2026-27-S1-MRP", course=advanced_course, term=offering.term, campus_code="MRP"
+    )
+    CoursePrerequisite.objects.create(course=advanced_course, prerequisite=offering.course)
+    registry = client_for(registrar)
+    url = "/api/v1/academics/enrolments/"
+
+    blocked = registry.post(url, {"student": student.id, "offering": advanced.id})
+    assert blocked.status_code == 400 and "AGR101" in str(blocked.json())
+
+    passed = Result.objects.create(
+        enrolment=Enrolment.objects.create(student=student, offering=offering),
+        coursework_mark=70,
+        exam_mark=70,
+        state="published",
+    )
+    compute(passed)
+    allowed = registry.post(url, {"student": student.id, "offering": advanced.id})
+    assert allowed.status_code == 201, allowed.content
+
+
+@pytest.mark.django_db
+def test_a_registration_hold_blocks_new_enrolment_but_not_an_existing_drop(
+    student, offering, registrar, client_for
+):
+    registry = client_for(registrar)
+    hold = RegistrationHold.objects.create(
+        student=student, reason=RegistrationHold.Reason.MISSING_DOCUMENT, source="admissions"
+    )
+    url = "/api/v1/academics/enrolments/"
+    blocked = registry.post(url, {"student": student.id, "offering": offering.id})
+    assert blocked.status_code == 400 and "hold" in str(blocked.json())
+
+    resolved = registry.post(f"/api/v1/academics/registration-holds/{hold.id}/resolve/")
+    assert resolved.json()["is_active"] is False
+    allowed = registry.post(url, {"student": student.id, "offering": offering.id})
+    assert allowed.status_code == 201, allowed.content
+
+    # Dropping an existing enrolment is never blocked by a hold.
+    RegistrationHold.objects.create(
+        student=student, reason=RegistrationHold.Reason.FINANCIAL, source="fees"
+    )
+    enrolment_id = allowed.json()["id"]
+    dropped = registry.post(f"{url}{enrolment_id}/drop/")
+    assert dropped.json()["status"] == "dropped"
