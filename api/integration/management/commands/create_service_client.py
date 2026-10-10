@@ -6,7 +6,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from integration.models import ServiceClient
 
-KNOWN_SCOPES = {"academics:read", "students:read", "marks:write", "attendance:write"}
+KNOWN_SCOPES = {"academics:read", "students:read", "marks:write", "attendance:write", "enrolment:read"}
 
 
 class Command(BaseCommand):
