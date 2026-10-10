@@ -15,6 +15,11 @@ class Programme(TimeStampedModel):
     award = models.CharField(max_length=20, choices=Award.choices)
     duration_years = models.PositiveSmallIntegerField(default=2)
     campus_codes = models.JSONField(default=list, help_text="Campuses offering the programme, e.g. ['MRP']")
+    intake_capacity = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        help_text="Maximum applicants admitted per intake year, across all campuses. Blank is unlimited.",
+    )
     is_active = models.BooleanField(default=True)
 
     class Meta:

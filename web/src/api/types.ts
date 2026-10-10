@@ -72,9 +72,23 @@ export interface Application {
   campus_code: string;
   intake_year: number;
   state: string;
+  assessment_score: string | null;
+  assessment_notes: string;
   decision_comment: string;
   allowed_actions: string[];
   student_no: string | null;
+  waitlist_rank: number | null;
+  document_count: number;
+  capacity_remaining: number | null;
+}
+
+export interface ApplicationDocument {
+  id: number;
+  application: number;
+  doc_type: "transcript" | "identification" | "medical" | "other";
+  note: string;
+  uploaded_by: string | null;
+  created_at: string;
 }
 
 export interface Offering {

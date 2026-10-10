@@ -12,19 +12,20 @@ One of three systems in the GSA ecosystem, built and deployed separately and joi
 Same stack and licence policy as the HRMS: Django 5, Django REST Framework, PostgreSQL 16, React,
 Caddy, Docker Compose. Every component is MIT, BSD, Apache 2.0, PostgreSQL or PSF licensed.
 
-**Status:** scaffold with working API and web screens. 26 backend tests pass against PostgreSQL.
+**Status:** scaffold with working API and web screens. Backend and web tests pass against PostgreSQL;
+see the CI workflow for current counts.
 
 ## Modules
 
 | Directory | What exists |
 |---|---|
-| `api/programmes` | Programmes, courses and curricula |
-| `api/students` | Admissions workflow (received, screened, offered, accepted, rejected, withdrawn); accepting an offer creates the student and the student number; students are campus-scoped, with an encrypted national ID and an audited reveal |
+| `api/programmes` | Programmes, courses and curricula; a programme may set an intake capacity |
+| `api/students` | Admissions workflow (submitted, under_review, interview, assessed, offered, waitlisted, accepted, declined, rejected, withdrawn) with document upload and a per-programme, per-intake waitlist; accepting an offer creates the student and the student number; students are campus-scoped, with an encrypted national ID and an audited reveal |
 | `api/academics` | Academic years and terms, course offerings (coursework and examination weights must total 100), enrolments with capacity and campus checks, effective-dated grading scale, results workflow (lecturer submits, Head of Department approves, Registrar publishes), grade point averages and transcripts |
 | `api/integration` | Scoped service keys; staff and campuses pulled from the HRMS; offerings, class lists and coursework marks exchanged with the LMS |
 | `api/reports` | Enrolment by programme and campus, results summary with pass rates, admissions funnel |
 | `api/core`, `api/audit`, `api/iam`, `api/notifications` | Shared skeleton: base models, field encryption, insert-only audit log, roles with campus and department scopes, session login with TOTP, account lockout, notifications |
-| `web/` | Dashboard, student directory with file and transcript, admissions with workflow actions, marks entry and results workflow, a student's own results |
+| `web/` | Dashboard, student directory with file and transcript, admissions review file (workflow actions, scoring, document upload, waitlist), marks entry and results workflow, a student's own results |
 
 ## Setup
 

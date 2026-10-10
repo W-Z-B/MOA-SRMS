@@ -1,6 +1,7 @@
 """Students (campus-scoped, masked identifiers, audited reveal) and admissions applications."""
 
 from django.db.models import Q
+from django.http import FileResponse
 from rest_framework import serializers, status
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -9,12 +10,13 @@ from rest_framework.routers import DefaultRouter
 from audit.services import record
 from core.crypto import mask
 from core.serializers import TimeStampedSerializer
+from core.validators import validate_upload
 from core.views import AuditedModelViewSet
 from core.workflow import WorkflowError
 from iam.models import Role
 from iam.services import has_role, scope_queryset
-from students.models import Application, Student
-from students.services import next_reference
+from students.models import Application, ApplicationDocument, Student
+from students.services import capacity_remaining, next_reference
 from students.workflow import APPLICATION
 
 RECORDS_WRITE = (Role.REGISTRAR, Role.ADMISSIONS_OFFICER, Role.ADMINISTRATOR)
@@ -65,12 +67,24 @@ class StudentSerializer(TimeStampedSerializer):
         return mask(obj.national_id)
 
 
+class ApplicationDocumentSerializer(TimeStampedSerializer):
+    uploaded_by = serializers.CharField(source="created_by.username", read_only=True, default=None)
+
+    class Meta(TimeStampedSerializer.Meta):
+        model = ApplicationDocument
+        fields = ("id", "application", "doc_type", "file", "note", "uploaded_by", "created_at")
+        extra_kwargs = {"file": {"write_only": True, "validators": [validate_upload]}}
+
+
 class ApplicationSerializer(TimeStampedSerializer):
     reference = serializers.CharField(read_only=True)
     state = serializers.CharField(read_only=True)
     full_name = serializers.CharField(read_only=True)
     allowed_actions = serializers.SerializerMethodField()
     student_no = serializers.CharField(source="student.student_no", read_only=True, default=None)
+    waitlist_rank = serializers.IntegerField(source="waitlist_entry.rank", read_only=True, default=None)
+    document_count = serializers.IntegerField(source="documents.count", read_only=True)
+    capacity_remaining = serializers.SerializerMethodField()
 
     class Meta(TimeStampedSerializer.Meta):
         model = Application
@@ -93,10 +107,15 @@ class ApplicationSerializer(TimeStampedSerializer):
             "campus_code",
             "intake_year",
             "state",
+            "assessment_score",
+            "assessment_notes",
             "decision_comment",
             "allowed_actions",
             "student",
             "student_no",
+            "waitlist_rank",
+            "document_count",
+            "capacity_remaining",
             "created_at",
             "updated_at",
         )
@@ -105,6 +124,9 @@ class ApplicationSerializer(TimeStampedSerializer):
     def get_allowed_actions(self, obj):
         request = self.context.get("request")
         return APPLICATION.allowed_actions(obj, request.user) if request else []
+
+    def get_capacity_remaining(self, obj):
+        return capacity_remaining(obj.programme, obj.intake_year)
 
 
 class TransitionSerializer(serializers.Serializer):
@@ -175,10 +197,26 @@ class ApplicationViewSet(AuditedModelViewSet):
         data = TransitionSerializer(data=request.data)
         data.is_valid(raise_exception=True)
         instance = self.get_object()
+        name = data.validated_data["action"]
+        if name == "score" and instance.assessment_score is None:
+            return Response(
+                {"code": "score_missing", "detail": "Record an interview or assessment score first."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        if name == "offer":
+            remaining = capacity_remaining(instance.programme, instance.intake_year)
+            if remaining is not None and remaining <= 0:
+                return Response(
+                    {
+                        "code": "capacity_full",
+                        "detail": "The programme's intake is full; waitlist the applicant instead.",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
         try:
             APPLICATION.apply(
                 instance,
-                data.validated_data["action"],
+                name,
                 request=request,
                 comment=data.validated_data.get("comment", ""),
             )
@@ -189,7 +227,32 @@ class ApplicationViewSet(AuditedModelViewSet):
         return Response(self.get_serializer(instance).data)
 
 
+class ApplicationDocumentViewSet(AuditedModelViewSet):
+    """Supporting documents for an application. Never served from MEDIA_URL; download is audited."""
+
+    serializer_class = ApplicationDocumentSerializer
+    read_roles = RECORDS_WRITE + (Role.PRINCIPAL, Role.AUDITOR)
+    write_roles = RECORDS_WRITE
+    http_method_names = ["get", "post", "delete", "head", "options"]
+
+    def get_queryset(self):
+        qs = scope_queryset(
+            self.request.user,
+            ApplicationDocument.objects.select_related("application"),
+            campus_field="application__campus_code",
+        )
+        application = self.request.query_params.get("application")
+        return qs.filter(application_id=application) if application else qs
+
+    @action(detail=True, methods=["get"])
+    def download(self, request, pk=None):
+        document = self.get_object()
+        record(request, "download", document)
+        return FileResponse(document.file.open("rb"), filename=document.file.name.rsplit("/", 1)[-1])
+
+
 router = DefaultRouter()
 router.register("students", StudentViewSet, basename="student")
 router.register("applications", ApplicationViewSet, basename="application")
+router.register("application-documents", ApplicationDocumentViewSet, basename="application-document")
 urlpatterns = router.urls

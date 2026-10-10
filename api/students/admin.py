@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from students.models import Application, Student
+from students.models import Application, ApplicationDocument, Student, WaitlistEntry
 
 
 @admin.register(Student)
@@ -31,3 +31,15 @@ class ApplicationAdmin(admin.ModelAdmin):
         "state",
     )
     list_filter = ("state", "campus_code", "intake_year")
+
+
+@admin.register(ApplicationDocument)
+class ApplicationDocumentAdmin(admin.ModelAdmin):
+    list_display = ("application", "doc_type", "created_at")
+    list_filter = ("doc_type",)
+
+
+@admin.register(WaitlistEntry)
+class WaitlistEntryAdmin(admin.ModelAdmin):
+    list_display = ("application", "programme", "intake_year", "rank")
+    list_filter = ("programme", "intake_year")

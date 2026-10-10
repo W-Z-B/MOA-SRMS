@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
-import { errorMessage, get, post } from "../../api/client";
-import { RECORDS_ROLES, hasAnyRole, type Application, type Me, type Paginated, type Programme } from "../../api/types";
+import { errorMessage, get, patch, post } from "../../api/client";
+import {
+  RECORDS_ROLES,
+  hasAnyRole,
+  type Application,
+  type ApplicationDocument,
+  type Me,
+  type Paginated,
+  type Programme,
+} from "../../api/types";
 
 interface Props {
   me: Me;
@@ -8,22 +16,41 @@ interface Props {
 }
 
 const STATE_LABEL: Record<string, string> = {
-  received: "Received",
-  screened: "Screened",
+  submitted: "Submitted",
+  under_review: "Under review",
+  interview: "Interview/assessment scheduled",
+  assessed: "Assessed",
   offered: "Offer made",
+  waitlisted: "Waitlisted",
   accepted: "Admitted",
+  declined: "Declined",
   rejected: "Rejected",
   withdrawn: "Withdrawn",
 };
+
+const ACTION_LABEL: Record<string, string> = {
+  review: "Move to review",
+  schedule_interview: "Schedule interview",
+  score: "Mark as assessed",
+  offer: "Make offer",
+  waitlist: "Add to waitlist",
+  promote: "Promote from waitlist",
+  accept: "Record acceptance",
+  decline: "Record decline",
+  reject: "Reject",
+  withdraw: "Withdraw",
+};
+
+const SECONDARY_ACTIONS = new Set(["reject", "withdraw", "decline"]);
 
 /** Applications with the admissions workflow; the actions shown are the ones the API allows this user. */
 export function AdmissionsScreen({ me, campusCode }: Props) {
   const [state, setState] = useState("");
   const [rows, setRows] = useState<Application[]>([]);
   const [programmes, setProgrammes] = useState<Programme[]>([]);
-  const [comments, setComments] = useState<Record<number, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [selectedId, setSelectedId] = useState<number | null>(null);
 
   const load = useCallback(() => {
     const params = new URLSearchParams();
@@ -40,91 +67,198 @@ export function AdmissionsScreen({ me, campusCode }: Props) {
 
   useEffect(load, [load]);
 
-  async function act(id: number, action: string) {
+  const programmeCode = (id: number) => programmes.find((p) => p.id === id)?.code ?? id;
+  const selected = rows.find((r) => r.id === selectedId) ?? null;
+
+  return (
+    <div className="split">
+      <section>
+        <div className="panel-head">
+          <h1>Admissions</h1>
+          {hasAnyRole(me, RECORDS_ROLES) && <button onClick={() => setAdding(!adding)}>{adding ? "Close form" : "New application"}</button>}
+        </div>
+        {adding && (
+          <ApplicationForm
+            programmes={programmes}
+            defaultCampus={campusCode}
+            onSaved={() => {
+              setAdding(false);
+              load();
+            }}
+          />
+        )}
+        <div className="filters">
+          <select id="application-state" value={state} onChange={(e) => setState(e.target.value)}>
+            <option value="">Any state</option>
+            {Object.entries(STATE_LABEL).map(([k, v]) => (
+              <option key={k} value={k}>
+                {v}
+              </option>
+            ))}
+          </select>
+          <span className="muted">{rows.length} applications</span>
+        </div>
+        {error && (
+          <p role="alert" className="error">
+            {error}
+          </p>
+        )}
+        <table>
+          <thead>
+            <tr>
+              <th>Reference</th>
+              <th>Applicant</th>
+              <th>Programme</th>
+              <th>Campus</th>
+              <th>State</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((a) => (
+              <tr key={a.id} className={selectedId === a.id ? "selected" : ""} onClick={() => setSelectedId(a.id)}>
+                <td>{a.reference}</td>
+                <td>{a.full_name}</td>
+                <td>{programmeCode(a.programme)}</td>
+                <td>{a.campus_code}</td>
+                <td>
+                  {STATE_LABEL[a.state] ?? a.state}
+                  {a.waitlist_rank != null && <span className="pill"> #{a.waitlist_rank}</span>}
+                  {a.student_no && <span className="pill"> {a.student_no}</span>}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </section>
+      <aside className="panel">
+        {selected ? (
+          <ApplicationFile key={selected.id} application={selected} onChanged={load} />
+        ) : (
+          <p className="muted">Select an application to review it.</p>
+        )}
+      </aside>
+    </div>
+  );
+}
+
+function ApplicationFile({ application, onChanged }: { application: Application; onChanged: () => void }) {
+  const [comment, setComment] = useState("");
+  const [score, setScore] = useState(application.assessment_score ?? "");
+  const [documents, setDocuments] = useState<ApplicationDocument[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+
+  const loadDocuments = useCallback(() => {
+    get<Paginated<ApplicationDocument>>(`/application-documents/?application=${application.id}`)
+      .then((r) => setDocuments(r.results))
+      .catch(() => setDocuments([]));
+  }, [application.id]);
+
+  useEffect(loadDocuments, [loadDocuments]);
+
+  async function act(action: string) {
+    setBusy(true);
     try {
-      await post(`/applications/${id}/transition/`, { action, comment: comments[id] ?? "" });
-      load();
+      await post(`/applications/${application.id}/transition/`, { action, comment });
+      setComment("");
+      onChanged();
     } catch (err) {
       setError(errorMessage(err, "Action failed."));
+    } finally {
+      setBusy(false);
     }
   }
 
-  const programmeCode = (id: number) => programmes.find((p) => p.id === id)?.code ?? id;
+  async function saveScore(e: FormEvent) {
+    e.preventDefault();
+    try {
+      await patch(`/applications/${application.id}/`, { assessment_score: score });
+      onChanged();
+    } catch (err) {
+      setError(errorMessage(err, "Could not save the score."));
+    }
+  }
+
+  async function upload(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const form = e.currentTarget;
+    const file = (form.elements.namedItem("file") as HTMLInputElement).files?.[0];
+    if (!file) return;
+    const data = new FormData();
+    data.set("application", String(application.id));
+    data.set("doc_type", (form.elements.namedItem("doc_type") as HTMLSelectElement).value);
+    data.set("file", file);
+    try {
+      await post("/application-documents/", data);
+      form.reset();
+      loadDocuments();
+    } catch (err) {
+      setError(errorMessage(err, "Could not upload the document."));
+    }
+  }
+
+  const needsComment = (action: string) => action === "reject";
 
   return (
     <>
-      <div className="panel-head">
-        <h1>Admissions</h1>
-        {hasAnyRole(me, RECORDS_ROLES) && <button onClick={() => setAdding(!adding)}>{adding ? "Close form" : "New application"}</button>}
-      </div>
-      {adding && (
-        <ApplicationForm
-          programmes={programmes}
-          defaultCampus={campusCode}
-          onSaved={() => {
-            setAdding(false);
-            load();
-          }}
-        />
+      <h2>{application.full_name}</h2>
+      <p className="muted">
+        {application.reference} · {STATE_LABEL[application.state] ?? application.state}
+        {application.capacity_remaining != null && <> · {application.capacity_remaining} places left</>}
+      </p>
+      {error && <p className="error">{error}</p>}
+
+      <h3>Interview / assessment</h3>
+      <form className="stack" onSubmit={saveScore}>
+        <label>
+          Score (0-100)
+          <input
+            aria-label="Assessment score"
+            type="number"
+            min={0}
+            max={100}
+            step="0.01"
+            value={score}
+            onChange={(e) => setScore(e.target.value)}
+          />
+        </label>
+        {application.assessment_notes && <p className="muted small">{application.assessment_notes}</p>}
+        <button type="submit">Save score</button>
+      </form>
+
+      <h3>Documents ({documents.length})</h3>
+      <ul>
+        {documents.map((d) => (
+          <li key={d.id}>
+            {d.doc_type} {d.note && `· ${d.note}`}
+          </li>
+        ))}
+      </ul>
+      <form className="stack" onSubmit={upload}>
+        <label>
+          Document type
+          <select name="doc_type" defaultValue="transcript">
+            <option value="transcript">Transcript</option>
+            <option value="identification">Identification</option>
+            <option value="medical">Medical</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <input aria-label="Choose document" type="file" name="file" accept=".pdf,.jpg,.jpeg,.png" required />
+        <button type="submit">Upload</button>
+      </form>
+
+      <h3>Decision</h3>
+      {application.allowed_actions.some(needsComment) && (
+        <input aria-label="Decision comment" placeholder="Comment (required to reject)" value={comment} onChange={(e) => setComment(e.target.value)} />
       )}
-      <div className="filters">
-        <select id="application-state" value={state} onChange={(e) => setState(e.target.value)}>
-          <option value="">Any state</option>
-          {Object.entries(STATE_LABEL).map(([k, v]) => (
-            <option key={k} value={k}>
-              {v}
-            </option>
-          ))}
-        </select>
-        <span className="muted">{rows.length} applications</span>
+      <div className="actions">
+        {application.allowed_actions.map((action) => (
+          <button key={action} disabled={busy} className={SECONDARY_ACTIONS.has(action) ? "secondary" : ""} onClick={() => act(action)}>
+            {ACTION_LABEL[action] ?? action}
+          </button>
+        ))}
       </div>
-      {error && (
-        <p role="alert" className="error">
-          {error}
-        </p>
-      )}
-      <table>
-        <thead>
-          <tr>
-            <th>Reference</th>
-            <th>Applicant</th>
-            <th>Programme</th>
-            <th>Campus</th>
-            <th>State</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((a) => (
-            <tr key={a.id}>
-              <td>{a.reference}</td>
-              <td>{a.full_name}</td>
-              <td>{programmeCode(a.programme)}</td>
-              <td>{a.campus_code}</td>
-              <td>
-                {STATE_LABEL[a.state] ?? a.state}
-                {a.student_no && <span className="pill"> {a.student_no}</span>}
-                {a.decision_comment && <span className="muted small"> {a.decision_comment}</span>}
-              </td>
-              <td className="actions">
-                {a.allowed_actions.includes("reject") && (
-                  <input
-                    aria-label="Rejection comment"
-                    placeholder="Comment (required to reject)"
-                    value={comments[a.id] ?? ""}
-                    onChange={(e) => setComments({ ...comments, [a.id]: e.target.value })}
-                  />
-                )}
-                {a.allowed_actions.map((action) => (
-                  <button key={action} className={["reject", "withdraw"].includes(action) ? "secondary" : ""} onClick={() => act(a.id, action)}>
-                    {action}
-                  </button>
-                ))}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </>
   );
 }

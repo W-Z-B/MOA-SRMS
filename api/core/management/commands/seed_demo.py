@@ -73,8 +73,8 @@ ADMITTED = [
 # Applications still in the admissions process, for the next intake.
 # reference, first name, last name, born, gender, programme, campus, state, comment
 PENDING = [
-    ("DEMO-101", "Tiffany", "Edwards", date(2008, 2, 17), "F", "CERT-FOR", "MRP", "received", ""),
-    ("DEMO-102", "Rohan", "Sukhdeo", date(2007, 9, 1), "M", "DIP-AHV", "MRP", "screened", ""),
+    ("DEMO-101", "Tiffany", "Edwards", date(2008, 2, 17), "F", "CERT-FOR", "MRP", "submitted", ""),
+    ("DEMO-102", "Rohan", "Sukhdeo", date(2007, 9, 1), "M", "DIP-AHV", "MRP", "under_review", ""),
     ("DEMO-103", "Melissa", "Grant", date(2007, 5, 23), "F", "CERT-AGP", "MRP", "offered", ""),
     (
         "DEMO-104",

@@ -5,6 +5,7 @@ from django.db import models
 
 from core.fields import EncryptedTextField
 from core.models import TimeStampedModel
+from core.validators import validate_upload
 
 
 class Gender(models.TextChoices):
@@ -75,10 +76,14 @@ class Student(PersonFields):
 
 class Application(PersonFields):
     class State(models.TextChoices):
-        RECEIVED = "received", "Received"
-        SCREENED = "screened", "Screened"
+        SUBMITTED = "submitted", "Submitted"
+        UNDER_REVIEW = "under_review", "Under review"
+        INTERVIEW = "interview", "Interview or assessment scheduled"
+        ASSESSED = "assessed", "Interview or assessment scored"
         OFFERED = "offered", "Offer made"
+        WAITLISTED = "waitlisted", "Waitlisted"
         ACCEPTED = "accepted", "Accepted and admitted"
+        DECLINED = "declined", "Declined by the applicant"
         REJECTED = "rejected", "Rejected"
         WITHDRAWN = "withdrawn", "Withdrawn"
 
@@ -89,7 +94,15 @@ class Application(PersonFields):
     )
     campus_code = models.CharField(max_length=10)
     intake_year = models.PositiveSmallIntegerField()
-    state = models.CharField(max_length=20, choices=State.choices, default=State.RECEIVED)
+    state = models.CharField(max_length=20, choices=State.choices, default=State.SUBMITTED)
+    assessment_score = models.DecimalField(
+        max_digits=5,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text="Interview or entrance assessment score, 0-100",
+    )
+    assessment_notes = models.TextField(blank=True)
     decision_comment = models.CharField(max_length=300, blank=True)
     student = models.OneToOneField(
         Student, null=True, blank=True, on_delete=models.SET_NULL, related_name="application"
@@ -97,6 +110,52 @@ class Application(PersonFields):
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(
+                condition=models.Q(assessment_score__isnull=True)
+                | models.Q(assessment_score__range=(0, 100)),
+                name="application_assessment_score_between_0_and_100",
+            )
+        ]
 
     def __str__(self) -> str:
         return f"{self.reference} {self.first_name} {self.last_name} ({self.state})"
+
+
+class ApplicationDocument(TimeStampedModel):
+    """A supporting document uploaded against an application. Served only via an audited download."""
+
+    class DocType(models.TextChoices):
+        TRANSCRIPT = "transcript", "School transcript or results"
+        IDENTIFICATION = "identification", "Proof of identity"
+        MEDICAL = "medical", "Medical certificate"
+        OTHER = "other", "Other supporting document"
+
+    application = models.ForeignKey(Application, on_delete=models.CASCADE, related_name="documents")
+    doc_type = models.CharField(max_length=20, choices=DocType.choices, default=DocType.OTHER)
+    file = models.FileField(upload_to="applications/%Y/", validators=[validate_upload])
+    note = models.CharField(max_length=200, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"{self.application.reference} {self.get_doc_type_display()}"
+
+
+class WaitlistEntry(TimeStampedModel):
+    """An application's place in its programme's waitlist for one intake year, when capacity is full."""
+
+    application = models.OneToOneField(Application, on_delete=models.CASCADE, related_name="waitlist_entry")
+    programme = models.ForeignKey(
+        "programmes.Programme", on_delete=models.PROTECT, related_name="waitlist_entries"
+    )
+    intake_year = models.PositiveSmallIntegerField()
+    rank = models.PositiveIntegerField()
+
+    class Meta:
+        ordering = ["programme", "intake_year", "rank"]
+        unique_together = [("programme", "intake_year", "rank")]
+
+    def __str__(self) -> str:
+        return f"{self.application.reference} rank {self.rank} ({self.programme.code} {self.intake_year})"

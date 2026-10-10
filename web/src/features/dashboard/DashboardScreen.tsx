@@ -22,10 +22,10 @@ export function DashboardScreen() {
   }, []);
 
   const enrolled = enrolment?.rows.reduce((sum, r) => sum + Number(r.enrolled), 0) ?? 0;
+  const OPEN_STATES = ["submitted", "under_review", "interview", "assessed", "offered", "waitlisted"];
   const open =
-    funnel?.rows
-      .filter((r) => ["received", "screened", "offered"].includes(String(r.state)))
-      .reduce((sum, r) => sum + Number(r.count), 0) ?? 0;
+    funnel?.rows.filter((r) => OPEN_STATES.includes(String(r.state))).reduce((sum, r) => sum + Number(r.count), 0) ??
+    0;
 
   return (
     <>
