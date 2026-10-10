@@ -10,6 +10,7 @@
   --stripe: #edf1e8;
   --danger: #9a2f2f;
   --amber: #9a6a14;
+  --good: #2f7a4f;
   --nav-w: 200px;
   --topbar-h: 52px;
   color-scheme: light;
@@ -532,4 +533,70 @@ textarea {
 .module h3 {
   margin: 0 0 8px;
   font-size: 16px;
+}
+
+/* Dashboard charts (S-D01, S-D02, S-D06): plain SVG, no charting library. */
+.chart-label,
+.chart-label-small {
+  fill: var(--ink);
+  font-size: 12px;
+}
+.chart-value,
+.chart-value-small {
+  fill: var(--muted);
+  font-size: 12px;
+}
+.chart-track {
+  fill: var(--stripe);
+}
+.chart-track-strong {
+  fill: none;
+  stroke: var(--muted);
+  stroke-width: 2;
+}
+.chart-bar-accent {
+  fill: var(--accent);
+}
+.chart-bar-good {
+  fill: var(--good);
+}
+.chart-bar-critical {
+  fill: var(--danger);
+}
+.chart-axis {
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+.chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 13px;
+}
+.chart-swatch {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 2px;
+  margin-left: 12px;
+  margin-right: 2px;
+}
+.chart-swatch:first-child {
+  margin-left: 0;
+}
+/* `fill`/`stroke` above style the SVG bars; a legend swatch is a plain HTML span, so it needs
+   its own background/border declarations instead, one per color the legend ever shows. */
+.chart-swatch.chart-bar-accent {
+  background: var(--accent);
+}
+.chart-swatch.chart-bar-good {
+  background: var(--good);
+}
+.chart-swatch.chart-bar-critical {
+  background: var(--danger);
+}
+.chart-swatch.chart-track-strong {
+  border: 2px solid var(--muted);
+  background: transparent;
 }
