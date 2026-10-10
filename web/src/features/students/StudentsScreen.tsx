@@ -331,7 +331,10 @@ export function TranscriptView({ transcript }: { transcript: Transcript }) {
                   </td>
                   <td className="num">{c.credits}</td>
                   <td className="num">{c.final_mark}</td>
-                  <td>{c.letter}</td>
+                  <td>
+                    {c.letter}
+                    {c.corrected && <span className="pill" title="This result was formally corrected after publishing">corrected</span>}
+                  </td>
                 </tr>
               ))}
             </tbody>

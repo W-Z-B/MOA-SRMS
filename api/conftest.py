@@ -99,6 +99,12 @@ def hod(make_user):
 
 
 @pytest.fixture
+def principal(make_user):
+    """Stands in for the exam board on the results workflow (S-W03); see academics/workflow.py."""
+    return make_user("principal", "principal", email="principal@gsa.edu.gy")
+
+
+@pytest.fixture
 def finance(make_user):
     return make_user("finance.office", "finance", campus_code="MRP", email="finance@gsa.edu.gy")
 

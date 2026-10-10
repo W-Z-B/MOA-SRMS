@@ -136,9 +136,15 @@ class GradeBand(TimeStampedModel):
 
 class Result(TimeStampedModel):
     class State(models.TextChoices):
+        """S-W03: entered, then reviewed by the department, then approved by the exam board,
+        then published. Published locks the marks against further change except through a
+        ResultCorrection (see below), which is why there is no state after PUBLISHED.
+        """
+
         DRAFT = "draft", "Draft"
         SUBMITTED = "submitted", "Submitted by lecturer"
-        APPROVED = "approved", "Approved by Head of Department"
+        DEPT_REVIEWED = "dept_reviewed", "Reviewed by Head of Department"
+        BOARD_APPROVED = "board_approved", "Approved by the exam board"
         PUBLISHED = "published", "Published"
 
     class Source(models.TextChoices):
@@ -152,7 +158,7 @@ class Result(TimeStampedModel):
     letter = models.CharField(max_length=3, blank=True)
     points = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
     is_pass = models.BooleanField(null=True)
-    state = models.CharField(max_length=12, choices=State.choices, default=State.DRAFT)
+    state = models.CharField(max_length=16, choices=State.choices, default=State.DRAFT)
     coursework_source = models.CharField(max_length=10, choices=Source.choices, default=Source.MANUAL)
     decision_comment = models.CharField(max_length=300, blank=True)
 
@@ -168,3 +174,30 @@ class Result(TimeStampedModel):
 
     def __str__(self) -> str:
         return f"{self.enrolment} {self.final_mark or '-'} ({self.state})"
+
+
+class ResultCorrection(TimeStampedModel):
+    """A formal, reasoned amendment to a result that is already PUBLISHED (locked). The Result
+    itself is updated in place (so every other query against it, transcripts and GPA included,
+    sees the corrected value immediately); this row is the permanent record of what it was
+    before, what it became, and why, kept even if the result is corrected again later.
+    """
+
+    result = models.ForeignKey(Result, on_delete=models.CASCADE, related_name="corrections")
+    reason = models.TextField()
+    previous_coursework_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    previous_exam_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    previous_final_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    previous_letter = models.CharField(max_length=3, blank=True)
+    previous_points = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+    new_coursework_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    new_exam_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    new_final_mark = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True)
+    new_letter = models.CharField(max_length=3, blank=True)
+    new_points = models.DecimalField(max_digits=3, decimal_places=2, null=True, blank=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self) -> str:
+        return f"Correction to {self.result} at {self.created_at:%Y-%m-%d %H:%M}"

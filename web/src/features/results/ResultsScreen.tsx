@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { errorMessage, get, patch, post } from "../../api/client";
 import type { Me, Offering, Paginated, Result } from "../../api/types";
+import { hasAnyRole } from "../../api/types";
 
 interface Props {
   me: Me;
@@ -10,8 +11,17 @@ interface Props {
 const STATE_LABEL: Record<string, string> = {
   draft: "Draft",
   submitted: "Submitted",
-  approved: "Approved",
+  dept_reviewed: "Reviewed by department",
+  board_approved: "Approved by exam board",
   published: "Published",
+};
+
+const ACTION_LABEL: Record<string, string> = {
+  submit: "Submit",
+  dept_review: "Review",
+  board_approve: "Approve",
+  publish: "Publish",
+  return: "Return",
 };
 
 /** Marks entry and the results workflow for one offering. Lecturers see only their own offerings. */
@@ -21,6 +31,9 @@ export function ResultsScreen({ me, campusCode }: Props) {
   const [rows, setRows] = useState<Result[]>([]);
   const [edits, setEdits] = useState<Record<number, { coursework_mark?: string; exam_mark?: string }>>({});
   const [comments, setComments] = useState<Record<number, string>>({});
+  const [corrections, setCorrections] = useState<
+    Record<number, { reason: string; coursework_mark?: string; exam_mark?: string } | undefined>
+  >({});
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -69,6 +82,26 @@ export function ResultsScreen({ me, campusCode }: Props) {
     }
   }
 
+  async function correct(row: Result) {
+    const draft = corrections[row.id];
+    if (!draft?.reason?.trim()) {
+      setError("A reason is required to correct a published result.");
+      return;
+    }
+    try {
+      await post(`/academics/results/${row.id}/correct/`, {
+        reason: draft.reason,
+        coursework_mark: draft.coursework_mark || undefined,
+        exam_mark: draft.exam_mark || undefined,
+      });
+      setCorrections({ ...corrections, [row.id]: undefined } as typeof corrections);
+      load();
+    } catch (err) {
+      setError(errorMessage(err, "Could not correct the result."));
+    }
+  }
+
+  const isRegistrar = hasAnyRole(me, ["registrar", "administrator"]);
   const offering = offerings.find((o) => o.id === offeringId);
   const canEdit = (row: Result) => row.state === "draft" && row.allowed_actions.includes("submit");
   const value = (row: Result, key: "coursework_mark" | "exam_mark") => edits[row.id]?.[key] ?? row[key] ?? "";
@@ -157,6 +190,11 @@ export function ResultsScreen({ me, campusCode }: Props) {
                 <td>
                   {STATE_LABEL[row.state] ?? row.state}
                   {row.decision_comment && <span className="muted small"> {row.decision_comment}</span>}
+                  {row.correction_count > 0 && (
+                    <span className="pill" title="Corrected after publishing">
+                      {row.correction_count === 1 ? "1 correction" : `${row.correction_count} corrections`}
+                    </span>
+                  )}
                 </td>
                 <td className="actions">
                   {canEdit(row) && edits[row.id] && (
@@ -174,12 +212,65 @@ export function ResultsScreen({ me, campusCode }: Props) {
                   )}
                   {row.allowed_actions.map((action) => (
                     <button key={action} className={action === "return" ? "secondary" : ""} onClick={() => act(row, action)}>
-                      {action}
+                      {ACTION_LABEL[action] ?? action}
                     </button>
                   ))}
                 </td>
               </tr>
             ))}
+            {isRegistrar &&
+              rows
+                .filter((row) => row.state === "published")
+                .map((row) => (
+                  <tr key={`correct-${row.id}`} className="correction-row">
+                    <td colSpan={7}>
+                      <details>
+                        <summary>
+                          Correct {row.student_no}&apos;s published result (reason required, fully audited)
+                        </summary>
+                        <div className="filters">
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            aria-label={`Corrected coursework mark for ${row.student_no}`}
+                            placeholder="New coursework"
+                            value={corrections[row.id]?.coursework_mark ?? ""}
+                            onChange={(e) =>
+                              setCorrections({
+                                ...corrections,
+                                [row.id]: { ...corrections[row.id], reason: corrections[row.id]?.reason ?? "", coursework_mark: e.target.value },
+                              })
+                            }
+                          />
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            step="0.01"
+                            aria-label={`Corrected examination mark for ${row.student_no}`}
+                            placeholder="New examination"
+                            value={corrections[row.id]?.exam_mark ?? ""}
+                            onChange={(e) =>
+                              setCorrections({
+                                ...corrections,
+                                [row.id]: { ...corrections[row.id], reason: corrections[row.id]?.reason ?? "", exam_mark: e.target.value },
+                              })
+                            }
+                          />
+                          <input
+                            aria-label={`Reason for correcting ${row.student_no}'s result`}
+                            placeholder="Reason (required)"
+                            value={corrections[row.id]?.reason ?? ""}
+                            onChange={(e) => setCorrections({ ...corrections, [row.id]: { ...corrections[row.id], reason: e.target.value } })}
+                          />
+                          <button onClick={() => correct(row)}>Correct</button>
+                        </div>
+                      </details>
+                    </td>
+                  </tr>
+                ))}
           </tbody>
         </table>
       )}

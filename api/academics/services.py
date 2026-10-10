@@ -7,7 +7,7 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 
-from academics.models import Enrolment, GradeBand, RegistrationHold, Result
+from academics.models import Enrolment, GradeBand, RegistrationHold, Result, ResultCorrection
 from programmes.models import CoursePrerequisite
 
 TWO_PLACES = Decimal("0.01")
@@ -42,6 +42,49 @@ def compute(result: Result, *, save: bool = True) -> Result:
     if save:
         result.save()
     return result
+
+
+@transaction.atomic
+def apply_correction(
+    result: Result,
+    *,
+    actor,
+    reason: str,
+    coursework_mark: Decimal | None = None,
+    exam_mark: Decimal | None = None,
+) -> ResultCorrection:
+    """Amend a PUBLISHED result's marks under a formal, reasoned correction (S-W03). The prior
+    values are kept on the returned ResultCorrection row permanently, even across a later
+    correction of the same result; the caller is responsible for checking `result.state` first
+    and for writing the general audit-log entry (see `academics.api.ResultViewSet.correct`).
+    """
+    correction = ResultCorrection.objects.create(
+        result=result,
+        reason=reason,
+        previous_coursework_mark=result.coursework_mark,
+        previous_exam_mark=result.exam_mark,
+        previous_final_mark=result.final_mark,
+        previous_letter=result.letter,
+        previous_points=result.points,
+        created_by=actor,
+        updated_by=actor,
+    )
+    if coursework_mark is not None:
+        result.coursework_mark = coursework_mark
+        result.coursework_source = Result.Source.MANUAL
+    if exam_mark is not None:
+        result.exam_mark = exam_mark
+    result.updated_by = actor
+    compute(result)
+    correction.new_coursework_mark = result.coursework_mark
+    correction.new_exam_mark = result.exam_mark
+    correction.new_final_mark = result.final_mark
+    correction.new_letter = result.letter
+    correction.new_points = result.points
+    correction.save(
+        update_fields=["new_coursework_mark", "new_exam_mark", "new_final_mark", "new_letter", "new_points"]
+    )
+    return correction
 
 
 def _results(student, *, published_only: bool, term=None):
@@ -88,6 +131,7 @@ def transcript(student, *, published_only: bool = True) -> dict:
                 "letter": result.letter,
                 "points": str(result.points),
                 "state": result.state,
+                "corrected": result.corrections.exists(),
             }
         )
         term_gpa = gpa(student, term=offering.term, published_only=published_only)

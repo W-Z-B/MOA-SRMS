@@ -142,6 +142,22 @@ export interface Result {
   coursework_source: "manual" | "lms";
   decision_comment: string;
   allowed_actions: string[];
+  correction_count: number;
+}
+
+export interface ResultCorrection {
+  id: number;
+  reason: string;
+  previous_coursework_mark: string | null;
+  previous_exam_mark: string | null;
+  previous_final_mark: string | null;
+  previous_letter: string;
+  new_coursework_mark: string | null;
+  new_exam_mark: string | null;
+  new_final_mark: string | null;
+  new_letter: string;
+  corrected_by: string;
+  created_at: string;
 }
 
 export interface TranscriptCourse {
@@ -152,6 +168,7 @@ export interface TranscriptCourse {
   letter: string;
   points: string;
   state: string;
+  corrected: boolean;
 }
 
 export interface Transcript {

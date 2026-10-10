@@ -16,10 +16,12 @@ from academics.models import (
     GradeBand,
     RegistrationHold,
     Result,
+    ResultCorrection,
     Term,
 )
 from academics.services import (
     active_holds,
+    apply_correction,
     compute,
     missing_prerequisites,
     next_enrolment_status,
@@ -146,6 +148,7 @@ class ResultSerializer(TimeStampedSerializer):
     offering_code = serializers.CharField(source="enrolment.offering.code", read_only=True)
     course_code = serializers.CharField(source="enrolment.offering.course.code", read_only=True)
     allowed_actions = serializers.SerializerMethodField()
+    correction_count = serializers.IntegerField(source="corrections.count", read_only=True)
 
     class Meta(TimeStampedSerializer.Meta):
         model = Result
@@ -166,6 +169,7 @@ class ResultSerializer(TimeStampedSerializer):
             "coursework_source",
             "decision_comment",
             "allowed_actions",
+            "correction_count",
         )
         read_only_fields = TimeStampedSerializer.Meta.read_only_fields + (
             "enrolment",
@@ -186,6 +190,45 @@ class ResultSerializer(TimeStampedSerializer):
 class TransitionSerializer(serializers.Serializer):
     action = serializers.CharField()
     comment = serializers.CharField(required=False, allow_blank=True, max_length=300)
+
+
+class CorrectSerializer(serializers.Serializer):
+    """A formal correction to an already-published result (S-W03): a reason is mandatory, and at
+    least one of the two marks must actually be changing."""
+
+    reason = serializers.CharField(max_length=500)
+    coursework_mark = serializers.DecimalField(
+        max_digits=5, decimal_places=2, required=False, allow_null=True
+    )
+    exam_mark = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, allow_null=True)
+
+    def validate(self, attrs):
+        if attrs.get("coursework_mark") is None and attrs.get("exam_mark") is None:
+            raise serializers.ValidationError("Provide at least one corrected mark.")
+        return attrs
+
+
+class ResultCorrectionSerializer(TimeStampedSerializer):
+    corrected_by = serializers.CharField(source="created_by.get_full_name", read_only=True, default="")
+
+    class Meta(TimeStampedSerializer.Meta):
+        model = ResultCorrection
+        fields = (
+            "id",
+            "reason",
+            "previous_coursework_mark",
+            "previous_exam_mark",
+            "previous_final_mark",
+            "previous_letter",
+            "previous_points",
+            "new_coursework_mark",
+            "new_exam_mark",
+            "new_final_mark",
+            "new_letter",
+            "new_points",
+            "corrected_by",
+            "created_at",
+        )
 
 
 class AcademicYearViewSet(AuditedModelViewSet):
@@ -301,9 +344,10 @@ class ResultViewSet(AuditedModelViewSet):
 
     serializer_class = ResultSerializer
     read_roles = STAFF_READ
-    # Heads of Department pass the role gate so the workflow can decide approve and return;
+    # Heads of Department and the Principal (standing in for the exam board, see workflow.py)
+    # pass the role gate so the workflow can decide dept_review, board_approve and return;
     # editing marks is still limited to the owning lecturer and the Registrar (perform_update).
-    write_roles = REGISTRY + (Role.LECTURER, Role.HOD)
+    write_roles = REGISTRY + (Role.LECTURER, Role.HOD, Role.PRINCIPAL)
     http_method_names = ["get", "patch", "post", "head", "options"]
 
     def get_queryset(self):
@@ -362,6 +406,34 @@ class ResultViewSet(AuditedModelViewSet):
             return Response({"code": exc.code, "detail": str(exc)}, status=code)
         instance.refresh_from_db()
         return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=["post"])
+    def correct(self, request, pk=None):
+        """Amend a PUBLISHED result's marks with a mandatory reason. Unlike `transition`, this
+        does not change `state` — published stays published — it only ever runs against a
+        published result, and every correction is kept forever on `ResultCorrection` as well as
+        in the general audit log (S-W03's "formal correction with a reason, audited")."""
+        if not has_role(request.user, *REGISTRY):
+            self.permission_denied(request, message="Only the Registrar may correct a published result.")
+        instance = self.get_object()
+        if instance.state != Result.State.PUBLISHED:
+            return Response(
+                {"code": "not_published", "detail": "Only a published result can be corrected."},
+                status=status.HTTP_409_CONFLICT,
+            )
+        data = CorrectSerializer(data=request.data)
+        data.is_valid(raise_exception=True)
+        before = snapshot(instance)
+        apply_correction(instance, actor=request.user, **data.validated_data)
+        record(request, "correct", instance, before=before, after=snapshot(instance))
+        instance.refresh_from_db()
+        return Response(self.get_serializer(instance).data)
+
+    @action(detail=True, methods=["get"])
+    def corrections(self, request, pk=None):
+        instance = self.get_object()
+        rows = instance.corrections.select_related("created_by")
+        return Response(ResultCorrectionSerializer(rows, many=True).data)
 
 
 class RegistrationHoldViewSet(AuditedModelViewSet):

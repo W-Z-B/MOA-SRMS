@@ -9,8 +9,15 @@ from notifications.models import Notification
 
 
 @pytest.mark.django_db
-def test_results_workflow_end_to_end(student, offering, lecturer, hod, registrar, make_user, client_for):
-    registry, teacher, head = client_for(registrar), client_for(lecturer), client_for(hod)
+def test_results_workflow_end_to_end(
+    student, offering, lecturer, hod, principal, registrar, make_user, client_for
+):
+    registry, teacher, head, board = (
+        client_for(registrar),
+        client_for(lecturer),
+        client_for(hod),
+        client_for(principal),
+    )
     enrolled = registry.post(
         "/api/v1/academics/enrolments/", {"student": student.id, "offering": offering.id}, format="json"
     )
@@ -29,15 +36,33 @@ def test_results_workflow_end_to_end(student, offering, lecturer, hod, registrar
     stranger = client_for(make_user("lecturer.other", "lecturer", campus_code="MRP"))
     assert stranger.patch(url, {"exam_mark": "99"}, format="json").status_code == 404
 
+    # Lecturer submits; the Head of Department reviews; the exam board (Principal) approves;
+    # only then does the Registrar publish and lock it (S-W03's four-step chain).
     assert teacher.post(f"{url}transition/", {"action": "submit"}).json()["state"] == "submitted"
     assert teacher.patch(url, {"exam_mark": "99"}, format="json").status_code == 403  # locked
-    assert teacher.post(f"{url}transition/", {"action": "approve"}).status_code == 403
-    assert head.post(f"{url}transition/", {"action": "approve"}).json()["state"] == "approved"
-    assert head.post(f"{url}transition/", {"action": "publish"}).status_code == 403
+    assert teacher.post(f"{url}transition/", {"action": "dept_review"}).status_code == 403
+    assert head.post(f"{url}transition/", {"action": "dept_review"}).json()["state"] == "dept_reviewed"
+    assert head.post(f"{url}transition/", {"action": "board_approve"}).status_code == 403
+    assert board.post(f"{url}transition/", {"action": "board_approve"}).json()["state"] == "board_approved"
+    assert board.post(f"{url}transition/", {"action": "publish"}).status_code == 403
     assert registry.post(f"{url}transition/", {"action": "publish"}).json()["state"] == "published"
 
     assert Enrolment.objects.get(pk=enrolled.json()["id"]).status == "completed"
     assert Notification.objects.filter(recipient=student.user, title="Result published: AGR101").exists()
+
+    # Published locks the marks; only a formally reasoned Registrar correction can change them,
+    # and it is kept on a permanent, visible correction trail (never a silent edit).
+    assert teacher.patch(url, {"exam_mark": "10"}, format="json").status_code == 403
+    missing_reason = registry.post(f"{url}correct/", {"exam_mark": "80"}, format="json")
+    assert missing_reason.status_code == 400 and "reason" in missing_reason.json()
+    corrected = registry.post(
+        f"{url}correct/", {"reason": "Script re-marked after an appeal", "exam_mark": "80"}, format="json"
+    ).json()
+    assert corrected["state"] == "published" and corrected["exam_mark"] == "80.00"
+    assert corrected["correction_count"] == 1
+    history = registry.get(f"{url}corrections/").json()
+    assert len(history) == 1 and history[0]["previous_exam_mark"] == "60.00"
+    assert history[0]["reason"] == "Script re-marked after an appeal"
 
 
 @pytest.mark.django_db
@@ -48,6 +73,16 @@ def test_head_of_department_can_return_a_result_with_a_comment(result, hod, clie
     url = f"/api/v1/academics/results/{result.id}/transition/"
     assert head.post(url, {"action": "return"}).json()["code"] == "comment_required"
     assert head.post(url, {"action": "return", "comment": "Check script 14"}).json()["state"] == "draft"
+
+
+@pytest.mark.django_db
+def test_only_a_published_result_can_be_corrected(result, registrar, client_for):
+    result.coursework_mark, result.exam_mark, result.state = 50, 50, "draft"
+    result.save()
+    registry = client_for(registrar)
+    url = f"/api/v1/academics/results/{result.id}/correct/"
+    refused = registry.post(url, {"reason": "Too early", "exam_mark": "70"}, format="json")
+    assert refused.status_code == 409 and refused.json()["code"] == "not_published"
 
 
 @pytest.mark.django_db
